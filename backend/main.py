@@ -26,7 +26,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="NexusGood API",
+    title="DataForAll API",
     description="Community-driven AI-for-good data platform",
     version="0.1.0",
     lifespan=lifespan,

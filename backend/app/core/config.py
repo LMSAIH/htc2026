@@ -5,14 +5,14 @@ from functools import lru_cache
 class Settings(BaseSettings):
     # Database
     DATABASE_URL: str = (
-        "postgresql+asyncpg://nexusgood:nexusgood@localhost:5432/nexusgood"
+        "postgresql+asyncpg://dataforall:dataforall@localhost:5432/dataforall"
     )
 
     # S3 / Vultr Object Storage
     S3_ENDPOINT_URL: str = "https://ewr1.vultrobjects.com"
     S3_ACCESS_KEY: str = ""
     S3_SECRET_KEY: str = ""
-    S3_BUCKET_NAME: str = "nexusgood-uploads"
+    S3_BUCKET_NAME: str = "dataforall-uploads"
     S3_REGION: str = "ewr1"
 
     # App

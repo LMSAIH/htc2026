@@ -31,5 +31,5 @@ class AIModelListResponse(BaseModel):
 
 class TrainRequest(BaseModel):
     mission_id: uuid.UUID
-    model_name: str = Field(default="nexusgood-v1", max_length=255)
+    model_name: str = Field(default="dataforall-v1", max_length=255)
     epochs: int = Field(default=10, ge=1, le=100)

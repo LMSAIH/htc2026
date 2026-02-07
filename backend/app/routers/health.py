@@ -5,4 +5,4 @@ router = APIRouter(tags=["health"])
 
 @router.get("/health")
 async def health_check():
-    return {"status": "healthy", "service": "nexusgood-api"}
+    return {"status": "healthy", "service": "dataforall-api"}

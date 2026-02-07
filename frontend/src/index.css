@@ -48,37 +48,37 @@
 :root {
   --radius: 0.625rem;
 
-  /* 🌌 Aurora Deep Space — Light Mode (rich blue-tinted) */
-  --background: #F8FAFC;
-  --foreground: #080D1F;              /* deep space text */
+  /* 🌌 Aurora Blue on White — clean base, rich blue features */
+  --background: #FFFFFF;
+  --foreground: #0F172A;              /* slate-900 — crisp dark text */
   --card: #FFFFFF;
-  --card-foreground: #080D1F;
+  --card-foreground: #0F172A;
   --popover: #FFFFFF;
-  --popover-foreground: #080D1F;
+  --popover-foreground: #0F172A;
   --primary: #2563EB;                 /* rich electric blue */
   --primary-foreground: #FFFFFF;
-  --secondary: #E0ECFF;              /* light blue wash */
-  --secondary-foreground: #0C1631;
-  --muted: #F1F5F9;
-  --muted-foreground: #475569;
-  --accent: #DBEAFE;                 /* vivid light blue accent */
-  --accent-foreground: #0C1631;
+  --secondary: #EFF6FF;              /* blue-50 — soft blue wash */
+  --secondary-foreground: #1E3A5F;
+  --muted: #F8FAFC;                  /* slate-50 */
+  --muted-foreground: #64748B;       /* slate-500 */
+  --accent: #DBEAFE;                 /* blue-100 — light accent */
+  --accent-foreground: #1E40AF;      /* blue-800 */
   --destructive: #EF4444;
-  --border: #CBD5E1;
-  --input: #CBD5E1;
+  --border: #E2E8F0;                 /* slate-200 */
+  --input: #E2E8F0;
   --ring: #2563EB;
-  --chart-1: #2563EB;
-  --chart-2: #0891B2;
-  --chart-3: #7C3AED;
-  --chart-4: #059669;
-  --chart-5: #D97706;
-  --sidebar: #F1F5F9;
-  --sidebar-foreground: #080D1F;
+  --chart-1: #2563EB;                /* blue-600 */
+  --chart-2: #0891B2;                /* cyan-600 */
+  --chart-3: #7C3AED;                /* violet-600 */
+  --chart-4: #059669;                /* emerald-600 */
+  --chart-5: #D97706;                /* amber-600 */
+  --sidebar: #F8FAFC;
+  --sidebar-foreground: #0F172A;
   --sidebar-primary: #2563EB;
   --sidebar-primary-foreground: #FFFFFF;
   --sidebar-accent: #DBEAFE;
-  --sidebar-accent-foreground: #0C1631;
-  --sidebar-border: #CBD5E1;
+  --sidebar-accent-foreground: #1E40AF;
+  --sidebar-border: #E2E8F0;
   --sidebar-ring: #2563EB;
 }
 

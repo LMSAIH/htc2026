@@ -48,76 +48,76 @@
 :root {
   --radius: 0.625rem;
 
-  /* 🌌 Aurora Deep Space — Light Mode (cool blue-tinted) */
-  --background: #F8FAFC;              /* cool white */
-  --foreground: #0A0F24;              /* deep space text */
+  /* 🌌 Aurora Deep Space — Light Mode (rich blue-tinted) */
+  --background: #F8FAFC;
+  --foreground: #080D1F;              /* deep space text */
   --card: #FFFFFF;
-  --card-foreground: #0A0F24;
+  --card-foreground: #080D1F;
   --popover: #FFFFFF;
-  --popover-foreground: #0A0F24;
-  --primary: #1B3A6B;                 /* mission blue — primary actions */
+  --popover-foreground: #080D1F;
+  --primary: #2563EB;                 /* rich electric blue */
   --primary-foreground: #FFFFFF;
-  --secondary: #E2E8F0;              /* soft slate */
-  --secondary-foreground: #0F1A3A;
-  --muted: #F1F5F9;                  /* pale slate */
-  --muted-foreground: #64748B;
-  --accent: #E0ECFF;                 /* light blue tint */
-  --accent-foreground: #0F1A3A;
+  --secondary: #E0ECFF;              /* light blue wash */
+  --secondary-foreground: #0C1631;
+  --muted: #F1F5F9;
+  --muted-foreground: #475569;
+  --accent: #DBEAFE;                 /* vivid light blue accent */
+  --accent-foreground: #0C1631;
   --destructive: #EF4444;
-  --border: #CBD5E1;                 /* slate border */
+  --border: #CBD5E1;
   --input: #CBD5E1;
-  --ring: #1B3A6B;
-  --chart-1: #1B3A6B;
+  --ring: #2563EB;
+  --chart-1: #2563EB;
   --chart-2: #0891B2;
   --chart-3: #7C3AED;
   --chart-4: #059669;
   --chart-5: #D97706;
   --sidebar: #F1F5F9;
-  --sidebar-foreground: #0A0F24;
-  --sidebar-primary: #1B3A6B;
+  --sidebar-foreground: #080D1F;
+  --sidebar-primary: #2563EB;
   --sidebar-primary-foreground: #FFFFFF;
-  --sidebar-accent: #E0ECFF;
-  --sidebar-accent-foreground: #0F1A3A;
+  --sidebar-accent: #DBEAFE;
+  --sidebar-accent-foreground: #0C1631;
   --sidebar-border: #CBD5E1;
-  --sidebar-ring: #1B3A6B;
+  --sidebar-ring: #2563EB;
 }
 
 .dark {
-  /* 🌌 Aurora Deep Space Palette
-     Anchor: #0A0F24 — navy / space black / intelligence blue
-     Bands:  #050811 → #0A0F24 → #0F1A3A → #142952 → #1B3A6B */
+  /* 🌌 Aurora Deep Space — Rich Blue Edition
+     Anchor: #080D1F — deepest space
+     Bands:  #050811 → #080D1F → #0C1631 → #122450 → #1E3A6E → #2563EB */
 
-  --background: #0A0F24;              /* deep space anchor */
-  --foreground: #E2E8F0;              /* cool silver-white text */
-  --card: #0F1A3A;                    /* raised surface — mid-dark blue */
-  --card-foreground: #E2E8F0;
-  --popover: #0F1A3A;
-  --popover-foreground: #E2E8F0;
-  --primary: #3B82F6;                 /* electric blue — primary actions */
+  --background: #080D1F;              /* deep space — slightly darker anchor */
+  --foreground: #F1F5F9;              /* bright silver-white text */
+  --card: #0C1631;                    /* raised surface — rich navy */
+  --card-foreground: #F1F5F9;
+  --popover: #0C1631;
+  --popover-foreground: #F1F5F9;
+  --primary: #2563EB;                 /* rich electric blue — vivid primary */
   --primary-foreground: #FFFFFF;
-  --secondary: #142952;               /* strategic blue — secondary surfaces */
-  --secondary-foreground: #CBD5E1;
-  --muted: #0F1A3A;                   /* muted backgrounds */
-  --muted-foreground: #64748B;        /* slate-muted text */
-  --accent: #1B3A6B;                  /* mission blue — accent highlights */
-  --accent-foreground: #E2E8F0;
-  --destructive: #EF4444;             /* red alert — stays universal */
-  --border: rgba(59, 130, 246, 0.12); /* subtle blue border glow */
-  --input: rgba(59, 130, 246, 0.15);  /* input field tint */
-  --ring: #3B82F6;                    /* focus ring — electric blue */
-  --chart-1: #3B82F6;                 /* electric blue */
+  --secondary: #122450;               /* deep royal blue — secondary surfaces */
+  --secondary-foreground: #E2E8F0;
+  --muted: #0C1631;                   /* muted backgrounds — rich navy */
+  --muted-foreground: #94A3B8;        /* brighter slate — readable muted text */
+  --accent: #1E3A6E;                  /* vivid mission blue — accent highlights */
+  --accent-foreground: #F1F5F9;
+  --destructive: #EF4444;             /* red alert */
+  --border: rgba(37, 99, 235, 0.18);  /* richer blue border glow */
+  --input: rgba(37, 99, 235, 0.20);   /* input field tint — more visible */
+  --ring: #2563EB;                    /* focus ring — rich blue */
+  --chart-1: #2563EB;                 /* rich blue */
   --chart-2: #06B6D4;                 /* cyan */
   --chart-3: #8B5CF6;                 /* violet */
   --chart-4: #10B981;                 /* emerald */
   --chart-5: #F59E0B;                 /* amber */
   --sidebar: #050811;                 /* darkest — near-black space */
-  --sidebar-foreground: #E2E8F0;
-  --sidebar-primary: #3B82F6;
+  --sidebar-foreground: #F1F5F9;
+  --sidebar-primary: #2563EB;
   --sidebar-primary-foreground: #FFFFFF;
-  --sidebar-accent: #0F1A3A;
-  --sidebar-accent-foreground: #E2E8F0;
-  --sidebar-border: rgba(59, 130, 246, 0.10);
-  --sidebar-ring: #3B82F6;
+  --sidebar-accent: #0C1631;
+  --sidebar-accent-foreground: #F1F5F9;
+  --sidebar-border: rgba(37, 99, 235, 0.14);
+  --sidebar-ring: #2563EB;
 }
 
 @layer base {

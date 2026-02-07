@@ -122,3 +122,28 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* Magic UI animations */
+@keyframes gradient {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+@keyframes border-beam {
+  100% { offset-distance: 100%; }
+}
+
+@keyframes shine-pulse {
+  0% { background-position: 0% 0%; }
+  50% { background-position: 100% 100%; }
+  100% { background-position: 0% 0%; }
+}
+
+@utility animate-gradient {
+  animation: gradient 8s linear infinite;
+}
+
+@utility animate-border-beam {
+  animation: border-beam calc(var(--duration)) infinite linear;
+}

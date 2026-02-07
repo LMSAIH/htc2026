@@ -15,6 +15,9 @@ class Settings(BaseSettings):
     S3_BUCKET_NAME: str = "dataforall-uploads"
     S3_REGION: str = "ewr1"
 
+    # Database SSL
+    DB_CA_CERT_PATH: str = ""  # Path to CA cert for SSL connections to managed Postgres
+
     # App
     APP_ENV: str = "development"
     APP_SECRET_KEY: str = "change-me-in-production"

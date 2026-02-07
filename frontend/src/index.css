@@ -47,71 +47,77 @@
 
 :root {
   --radius: 0.625rem;
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
-  --chart-1: oklch(0.646 0.222 41.116);
-  --chart-2: oklch(0.6 0.118 184.704);
-  --chart-3: oklch(0.398 0.07 227.392);
-  --chart-4: oklch(0.828 0.189 84.429);
-  --chart-5: oklch(0.769 0.188 70.08);
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
+
+  /* 🌌 Aurora Deep Space — Light Mode (cool blue-tinted) */
+  --background: #F8FAFC;              /* cool white */
+  --foreground: #0A0F24;              /* deep space text */
+  --card: #FFFFFF;
+  --card-foreground: #0A0F24;
+  --popover: #FFFFFF;
+  --popover-foreground: #0A0F24;
+  --primary: #1B3A6B;                 /* mission blue — primary actions */
+  --primary-foreground: #FFFFFF;
+  --secondary: #E2E8F0;              /* soft slate */
+  --secondary-foreground: #0F1A3A;
+  --muted: #F1F5F9;                  /* pale slate */
+  --muted-foreground: #64748B;
+  --accent: #E0ECFF;                 /* light blue tint */
+  --accent-foreground: #0F1A3A;
+  --destructive: #EF4444;
+  --border: #CBD5E1;                 /* slate border */
+  --input: #CBD5E1;
+  --ring: #1B3A6B;
+  --chart-1: #1B3A6B;
+  --chart-2: #0891B2;
+  --chart-3: #7C3AED;
+  --chart-4: #059669;
+  --chart-5: #D97706;
+  --sidebar: #F1F5F9;
+  --sidebar-foreground: #0A0F24;
+  --sidebar-primary: #1B3A6B;
+  --sidebar-primary-foreground: #FFFFFF;
+  --sidebar-accent: #E0ECFF;
+  --sidebar-accent-foreground: #0F1A3A;
+  --sidebar-border: #CBD5E1;
+  --sidebar-ring: #1B3A6B;
 }
 
 .dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
-  --chart-1: oklch(0.488 0.243 264.376);
-  --chart-2: oklch(0.696 0.17 162.48);
-  --chart-3: oklch(0.769 0.188 70.08);
-  --chart-4: oklch(0.627 0.265 303.9);
-  --chart-5: oklch(0.645 0.246 16.439);
-  --sidebar: oklch(0.205 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.556 0 0);
+  /* 🌌 Aurora Deep Space Palette
+     Anchor: #0A0F24 — navy / space black / intelligence blue
+     Bands:  #050811 → #0A0F24 → #0F1A3A → #142952 → #1B3A6B */
+
+  --background: #0A0F24;              /* deep space anchor */
+  --foreground: #E2E8F0;              /* cool silver-white text */
+  --card: #0F1A3A;                    /* raised surface — mid-dark blue */
+  --card-foreground: #E2E8F0;
+  --popover: #0F1A3A;
+  --popover-foreground: #E2E8F0;
+  --primary: #3B82F6;                 /* electric blue — primary actions */
+  --primary-foreground: #FFFFFF;
+  --secondary: #142952;               /* strategic blue — secondary surfaces */
+  --secondary-foreground: #CBD5E1;
+  --muted: #0F1A3A;                   /* muted backgrounds */
+  --muted-foreground: #64748B;        /* slate-muted text */
+  --accent: #1B3A6B;                  /* mission blue — accent highlights */
+  --accent-foreground: #E2E8F0;
+  --destructive: #EF4444;             /* red alert — stays universal */
+  --border: rgba(59, 130, 246, 0.12); /* subtle blue border glow */
+  --input: rgba(59, 130, 246, 0.15);  /* input field tint */
+  --ring: #3B82F6;                    /* focus ring — electric blue */
+  --chart-1: #3B82F6;                 /* electric blue */
+  --chart-2: #06B6D4;                 /* cyan */
+  --chart-3: #8B5CF6;                 /* violet */
+  --chart-4: #10B981;                 /* emerald */
+  --chart-5: #F59E0B;                 /* amber */
+  --sidebar: #050811;                 /* darkest — near-black space */
+  --sidebar-foreground: #E2E8F0;
+  --sidebar-primary: #3B82F6;
+  --sidebar-primary-foreground: #FFFFFF;
+  --sidebar-accent: #0F1A3A;
+  --sidebar-accent-foreground: #E2E8F0;
+  --sidebar-border: rgba(59, 130, 246, 0.10);
+  --sidebar-ring: #3B82F6;
 }
 
 @layer base {

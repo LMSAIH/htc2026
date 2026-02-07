@@ -48,3 +48,13 @@ backend/alembic/versions/__pycache__/
 .coverage
 htmlcov/
 .pytest_cache/
+
+# K8s secrets (contain credentials — never commit)
+k8s/secrets.yaml
+k8s/registry-secret.yaml
+
+# Kubeconfig
+backend/kubeconf.yaml
+
+# Context file
+.context.md

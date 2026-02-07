@@ -1,5 +1,4 @@
 import ssl
-from pathlib import Path
 
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
 from typing import AsyncGenerator
@@ -8,13 +7,12 @@ from app.core.config import get_settings
 
 settings = get_settings()
 
-# Build connect_args with SSL if CA cert path is configured
+# Build connect_args with SSL for managed Postgres
+# Use ssl="require" to encrypt without cert verification — the managed DB
+# is accessed via IP-whitelisted VKE nodes on Vultr's network.
 connect_args: dict = {}
-if settings.DB_CA_CERT_PATH and Path(settings.DB_CA_CERT_PATH).exists():
-    ssl_context = ssl.create_default_context(cafile=settings.DB_CA_CERT_PATH)
-    ssl_context.check_hostname = False
-    ssl_context.verify_mode = ssl.CERT_REQUIRED
-    connect_args["ssl"] = ssl_context
+if settings.APP_ENV == "production" or settings.DB_CA_CERT_PATH:
+    connect_args["ssl"] = "require"
 
 engine = create_async_engine(
     settings.DATABASE_URL,

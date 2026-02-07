@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: dataforall-config
+  namespace: dataforall
+  labels:
+    app: dataforall
+    component: backend
+data:
+  APP_ENV: "production"
+  S3_ENDPOINT_URL: "https://ewr2.vultrobjects.com"
+  S3_BUCKET_NAME: "dataforall-uploads"
+  S3_REGION: "ewr2"
+  CORS_ORIGINS: "*"
+  DB_CA_CERT_PATH: "/etc/ssl/certs/vultr-db-ca.pem"

@@ -519,3 +519,220 @@ export function getRoleDescription(role: Role): string {
       return "Review submissions, manage datasets, and approve contributions.";
   }
 }
+
+// ─── Annotation / Task System (Zooniverse-style) ─────────────────────
+export type TaskType = "single_choice" | "multiple_choice" | "free_text" | "number";
+
+export interface TaskOption {
+  id: string;
+  label: string;
+  description?: string;
+}
+
+export interface AnnotationTask {
+  id: string;
+  mission_id: string;
+  order: number;
+  title: string;
+  instruction: string;
+  type: TaskType;
+  required: boolean;
+  options?: TaskOption[];
+  min?: number;
+  max?: number;
+  placeholder?: string;
+}
+
+export interface TaskResponse {
+  id: string;
+  task_id: string;
+  file_id: string;
+  user_id: string;
+  value: string | string[] | number;
+  created_at: string;
+}
+
+export const ANNOTATION_TASKS: AnnotationTask[] = [
+  // ─── Mission 1: Crop Disease Detection ───
+  {
+    id: "t1",
+    mission_id: "m1",
+    order: 1,
+    title: "Leaf Health",
+    instruction: "Is this leaf healthy or does it show signs of disease?",
+    type: "single_choice",
+    required: true,
+    options: [
+      { id: "o1", label: "Healthy", description: "No visible spots, discoloration, or wilting" },
+      { id: "o2", label: "Diseased", description: "Visible spots, lesions, discoloration, or wilting" },
+      { id: "o3", label: "Uncertain", description: "Can't tell from this image" },
+    ],
+  },
+  {
+    id: "t2",
+    mission_id: "m1",
+    order: 2,
+    title: "Disease Identification",
+    instruction: "If diseased, which disease(s) do you see? Select all that apply.",
+    type: "multiple_choice",
+    required: false,
+    options: [
+      { id: "o4", label: "Late Blight" },
+      { id: "o5", label: "Early Blight" },
+      { id: "o6", label: "Septoria Leaf Spot" },
+      { id: "o7", label: "Leaf Curl" },
+      { id: "o8", label: "Bacterial Spot" },
+      { id: "o9", label: "Other" },
+    ],
+  },
+  {
+    id: "t3",
+    mission_id: "m1",
+    order: 3,
+    title: "Severity Score",
+    instruction: "Rate the severity of the disease from 1 (mild) to 5 (severe).",
+    type: "number",
+    required: false,
+    min: 1,
+    max: 5,
+  },
+  {
+    id: "t4",
+    mission_id: "m1",
+    order: 4,
+    title: "Notes",
+    instruction: "Any additional observations about this sample?",
+    type: "free_text",
+    required: false,
+    placeholder: "e.g. 'Lesions concentrated on leaf tips, early stage…'",
+  },
+
+  // ─── Mission 2: Air Quality ───
+  {
+    id: "t5",
+    mission_id: "m2",
+    order: 1,
+    title: "Data Quality",
+    instruction: "Does this sensor reading file look valid?",
+    type: "single_choice",
+    required: true,
+    options: [
+      { id: "o10", label: "Valid", description: "Properly formatted, timestamps look correct" },
+      { id: "o11", label: "Suspect", description: "Some values look off or gaps in timestamps" },
+      { id: "o12", label: "Invalid", description: "Corrupted, wrong format, or nonsense values" },
+    ],
+  },
+  {
+    id: "t6",
+    mission_id: "m2",
+    order: 2,
+    title: "Environment Type",
+    instruction: "What type of environment is this sensor in?",
+    type: "single_choice",
+    required: false,
+    options: [
+      { id: "o13", label: "Urban — Roadside" },
+      { id: "o14", label: "Urban — Residential" },
+      { id: "o15", label: "Suburban" },
+      { id: "o16", label: "Industrial" },
+      { id: "o17", label: "Rural" },
+      { id: "o18", label: "Unknown" },
+    ],
+  },
+
+  // ─── Mission 3: Language Audio ───
+  {
+    id: "t7",
+    mission_id: "m3",
+    order: 1,
+    title: "Audio Quality",
+    instruction: "Rate the audio recording quality.",
+    type: "single_choice",
+    required: true,
+    options: [
+      { id: "o19", label: "Clear", description: "Speech is easily understandable" },
+      { id: "o20", label: "Noisy", description: "Background noise but speech is audible" },
+      { id: "o21", label: "Poor", description: "Very hard to hear the speaker" },
+    ],
+  },
+  {
+    id: "t8",
+    mission_id: "m3",
+    order: 2,
+    title: "Speaker Count",
+    instruction: "How many distinct speakers can you hear?",
+    type: "number",
+    required: true,
+    min: 1,
+    max: 10,
+  },
+  {
+    id: "t9",
+    mission_id: "m3",
+    order: 3,
+    title: "Transcription",
+    instruction: "If you understand the language, provide a transcription or translation.",
+    type: "free_text",
+    required: false,
+    placeholder: "Transcription or English translation…",
+  },
+
+  // ─── Mission 5: Wildlife Camera Traps ───
+  {
+    id: "t10",
+    mission_id: "m5",
+    order: 1,
+    title: "Species Present",
+    instruction: "Which species can you identify in this image? Select all that apply.",
+    type: "multiple_choice",
+    required: true,
+    options: [
+      { id: "o22", label: "Zebra" },
+      { id: "o23", label: "Wildebeest" },
+      { id: "o24", label: "Elephant" },
+      { id: "o25", label: "Lion" },
+      { id: "o26", label: "Giraffe" },
+      { id: "o27", label: "Hyena" },
+      { id: "o28", label: "No animal visible" },
+      { id: "o29", label: "Other" },
+    ],
+  },
+  {
+    id: "t11",
+    mission_id: "m5",
+    order: 2,
+    title: "Animal Count",
+    instruction: "How many individual animals can you see?",
+    type: "number",
+    required: true,
+    min: 0,
+    max: 50,
+  },
+];
+
+export const TASK_RESPONSES: TaskResponse[] = [
+  { id: "tr1", task_id: "t1", file_id: "f1", user_id: "u5", value: "o2", created_at: "2026-01-16T08:00:00Z" },
+  { id: "tr2", task_id: "t2", file_id: "f1", user_id: "u5", value: ["o4"], created_at: "2026-01-16T08:01:00Z" },
+  { id: "tr3", task_id: "t3", file_id: "f1", user_id: "u5", value: 4, created_at: "2026-01-16T08:02:00Z" },
+  { id: "tr4", task_id: "t1", file_id: "f2", user_id: "u5", value: "o1", created_at: "2026-01-15T09:00:00Z" },
+  { id: "tr5", task_id: "t10", file_id: "f15", user_id: "u1", value: ["o22", "o23"], created_at: "2026-01-02T08:00:00Z" },
+  { id: "tr6", task_id: "t11", file_id: "f15", user_id: "u1", value: 4, created_at: "2026-01-02T08:01:00Z" },
+];
+
+export function getTasksForMission(missionId: string): AnnotationTask[] {
+  return ANNOTATION_TASKS.filter((t) => t.mission_id === missionId).sort(
+    (a, b) => a.order - b.order,
+  );
+}
+
+export function getResponsesForFile(fileId: string): TaskResponse[] {
+  return TASK_RESPONSES.filter((r) => r.file_id === fileId);
+}
+
+export function getFilesNeedingAnnotation(missionId: string): DataFile[] {
+  const mission = getMissionById(missionId);
+  if (!mission) return [];
+  return mission.datasets.flatMap((d) =>
+    d.sample_files.filter((f) => f.status === "needs_annotation"),
+  );
+}

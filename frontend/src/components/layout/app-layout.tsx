@@ -25,6 +25,7 @@ import {
   SidebarRail,
 } from "@/components/ui/sidebar";
 import { Separator } from "@/components/ui/separator";
+import { AnimatedThemeToggler } from "@/components/ui/animated-theme-toggler";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -137,6 +138,9 @@ export function AppLayout() {
           <span className="text-sm font-medium text-muted-foreground">
             {navItems.find((n) => isActive(n.href))?.title ?? "DataForAll"}
           </span>
+          <div className="ml-auto">
+            <AnimatedThemeToggler className="h-8 w-8 rounded-md flex items-center justify-center hover:bg-muted transition-colors [&_svg]:h-4 [&_svg]:w-4" />
+          </div>
         </header>
 
         {/* Page content */}

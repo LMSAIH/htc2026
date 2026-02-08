@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger, SheetTitle } from "@/components/ui/sheet";
+import { AnimatedThemeToggler } from "@/components/ui/animated-theme-toggler";
 import { cn } from "@/lib/utils";
 
 const navItems = [
@@ -72,6 +73,8 @@ export function Navbar() {
               <Github className="h-4 w-4" />
             </Button>
           </a>
+
+          <AnimatedThemeToggler className="hidden md:inline-flex h-9 w-9 rounded-md items-center justify-center border border-input bg-background hover:bg-accent transition-colors [&_svg]:h-4 [&_svg]:w-4" />
 
           {/* Mobile menu */}
           <Sheet open={open} onOpenChange={setOpen}>

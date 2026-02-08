@@ -1,11 +1,21 @@
 """
 Training router — endpoints for launching training jobs, listing them,
-fetching HuggingFace models, and GH200 GPU info.
+fetching HuggingFace models, and real-time progress/logs via WebSocket.
 """
 
 import asyncio
 import uuid
-from fastapi import APIRouter, Depends, Header, HTTPException, Query
+from datetime import datetime
+from typing import Annotated
+from fastapi import (
+    APIRouter,
+    Depends,
+    Header,
+    HTTPException,
+    Query,
+    WebSocket,
+    WebSocketDisconnect,
+)
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -14,6 +24,7 @@ from app.core.config import get_settings
 from app.models.mission import Mission
 from app.models.contribution import Contribution, ContributionStatus
 from app.models.training_job import TrainingJob, TrainingJobStatus, TrainingTask
+from app.models.training_log import TrainingLog
 from app.schemas.training import (
     TrainJobRequest,
     TrainingJobResponse,
@@ -25,8 +36,67 @@ from app.schemas.training import (
     CallbackStatusRequest,
     CallbackCompleteRequest,
     CallbackFailRequest,
+    TrainingProgressResponse,
+    HeartbeatRequest,
+    LogMessage,
+    LogEntry,
+    LogEntryListResponse,
 )
 from app.services import hf_models, lambda_gpu, training_orchestrator
+
+
+class ProgressConnectionManager:
+    """Manages WebSocket connections for training progress updates."""
+
+    def __init__(self):
+        self.active_connections: dict[str, set[WebSocket]] = {}
+
+    async def connect(self, job_id: str, websocket: WebSocket):
+        await websocket.accept()
+        if job_id not in self.active_connections:
+            self.active_connections[job_id] = set()
+        self.active_connections[job_id].add(websocket)
+
+    def disconnect(self, job_id: str, websocket: WebSocket):
+        if job_id in self.active_connections:
+            self.active_connections[job_id].discard(websocket)
+            if not self.active_connections[job_id]:
+                del self.active_connections[job_id]
+
+    async def broadcast(self, job_id: str, message: dict):
+        if job_id in self.active_connections:
+            for connection in self.active_connections[job_id]:
+                await connection.send_json(message)
+
+
+class LogConnectionManager:
+    """Manages WebSocket connections for training log streaming."""
+
+    def __init__(self):
+        self.active_connections: dict[str, set[WebSocket]] = {}
+
+    async def connect(self, job_id: str, websocket: WebSocket):
+        await websocket.accept()
+        if job_id not in self.active_connections:
+            self.active_connections[job_id] = set()
+        self.active_connections[job_id].add(websocket)
+        # Send recent logs from DB on connection
+        # TODO: Load and send recent logs
+
+    def disconnect(self, job_id: str, websocket: WebSocket):
+        if job_id in self.active_connections:
+            self.active_connections[job_id].discard(websocket)
+            if not self.active_connections[job_id]:
+                del self.active_connections[job_id]
+
+    async def broadcast(self, job_id: str, message: dict):
+        if job_id in self.active_connections:
+            for connection in self.active_connections[job_id]:
+                await connection.send_json(message)
+
+
+progress_manager = ProgressConnectionManager()
+log_manager = LogConnectionManager()
 
 router = APIRouter(prefix="/training", tags=["training"])
 
@@ -225,6 +295,68 @@ async def get_gpu_info():
     return GPUInfoResponse(gpu=GPUInfo(**info), mode=mode)
 
 
+# ── Real-time Training Progress ───────────────────────────────────────────
+
+
+@router.get(
+    "/jobs/{job_id}/progress",
+    response_model=TrainingProgressResponse,
+    summary="Get real-time training progress",
+)
+async def get_training_progress(
+    job_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+):
+    """Get current training progress including epoch, batch, loss, accuracy, and ETA."""
+    result = await db.execute(select(TrainingJob).where(TrainingJob.id == job_id))
+    job = result.scalar_one_or_none()
+    if not job:
+        raise HTTPException(404, "Training job not found")
+
+    return TrainingProgressResponse(
+        id=job.id,
+        mission_id=job.mission_id,
+        status=job.status,
+        current_epoch=job.current_epoch or 0,
+        total_epochs=job.max_epochs,
+        current_batch=job.current_batch or 0,
+        total_batches=job.total_batches or 0,
+        epochs_completed=job.epochs_completed,
+        current_loss=job.current_loss,
+        current_accuracy=job.current_accuracy,
+        eta_seconds=job.eta_seconds,
+        updated_at=job.last_progress_at,
+    )
+
+
+@router.websocket("/ws/training/{job_id}")
+async def websocket_training_progress(
+    job_id: str,
+    websocket: WebSocket,
+):
+    """WebSocket endpoint for real-time training progress updates."""
+    await progress_manager.connect(job_id, websocket)
+    try:
+        while True:
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        progress_manager.disconnect(job_id, websocket)
+
+
+@router.websocket("/ws/logs/{job_id}")
+async def websocket_logs(
+    job_id: str,
+    websocket: WebSocket,
+):
+    """WebSocket endpoint for real-time training log streaming from worker."""
+    await log_manager.connect(job_id, websocket)
+    try:
+        while True:
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        log_manager.disconnect(job_id, websocket)
+
+
 # ── GPU Worker Callbacks ───────────────────────────────────────────────────────
 
 
@@ -249,12 +381,116 @@ async def callback_status(
 
     job.status = TrainingJobStatus.TRAINING
     job.epochs_completed = payload.epochs_completed
+    job.current_epoch = payload.current_epoch or 0
+    job.current_batch = payload.current_batch or 0
+    job.total_batches = payload.total_batches or 0
+    job.eta_seconds = payload.eta_seconds
+    job.last_progress_at = datetime.utcnow()
+
     if payload.current_loss is not None:
         job.result_loss = payload.current_loss
+        job.current_loss = payload.current_loss
     if payload.current_accuracy is not None:
         job.result_accuracy = payload.current_accuracy
+        job.current_accuracy = payload.current_accuracy
 
-    await db.flush()
+    await db.commit()
+
+    await progress_manager.broadcast(
+        str(job_id),
+        {
+            "current_epoch": job.current_epoch,
+            "total_epochs": job.max_epochs,
+            "current_batch": job.current_batch,
+            "total_batches": job.total_batches,
+            "epochs_completed": job.epochs_completed,
+            "current_loss": job.current_loss,
+            "current_accuracy": job.current_accuracy,
+            "eta_seconds": job.eta_seconds,
+        },
+    )
+
+    return {"ok": True}
+
+
+@router.post(
+    "/jobs/{job_id}/callback/heartbeat",
+    summary="GPU worker reports heartbeat (alive signal)",
+)
+async def callback_heartbeat(
+    job_id: uuid.UUID,
+    payload: HeartbeatRequest,
+    x_callback_secret: str = Header(..., alias="X-Callback-Secret"),
+    db: AsyncSession = Depends(get_db),
+):
+    """Update heartbeat timestamp and worker status. No status change, just 'I'm alive'."""
+    settings = get_settings()
+    if x_callback_secret != settings.CALLBACK_SECRET:
+        raise HTTPException(403, "Invalid callback secret")
+
+    result = await db.execute(select(TrainingJob).where(TrainingJob.id == job_id))
+    job = result.scalar_one_or_none()
+    if not job:
+        raise HTTPException(404, "Training job not found")
+
+    job.last_heartbeat_at = datetime.utcnow()
+    job.worker_status = payload.worker_status
+    if payload.gpu_temp_c is not None:
+        job.gpu_temp_c = payload.gpu_temp_c
+    if payload.gpu_memory_used_gb is not None:
+        job.gpu_memory_used_gb = payload.gpu_memory_used_gb
+    if payload.current_epoch is not None:
+        job.current_epoch = payload.current_epoch
+    if payload.current_batch is not None:
+        job.current_batch = payload.current_batch
+
+    await db.commit()
+
+    return {"ok": True}
+
+
+@router.post(
+    "/jobs/{job_id}/callback/log",
+    summary="Worker sends structured log entry (WS fallback)",
+)
+async def callback_log(
+    job_id: uuid.UUID,
+    payload: LogMessage,
+    x_callback_secret: str = Header(..., alias="X-Callback-Secret"),
+    db: AsyncSession = Depends(get_db),
+):
+    """Receive log entry from worker, store in DB and broadcast to WS clients."""
+    settings = get_settings()
+    if x_callback_secret != settings.CALLBACK_SECRET:
+        raise HTTPException(403, "Invalid callback secret")
+
+    result = await db.execute(select(TrainingJob).where(TrainingJob.id == job_id))
+    job = result.scalar_one_or_none()
+    if not job:
+        raise HTTPException(404, "Training job not found")
+
+    log_entry = TrainingLog(
+        job_id=job_id,
+        level=payload.level,
+        message=payload.message,
+        timestamp=payload.timestamp,
+        epoch=payload.epoch,
+        batch=payload.batch,
+    )
+    db.add(log_entry)
+    await db.commit()
+
+    await log_manager.broadcast(
+        str(job_id),
+        {
+            "level": payload.level,
+            "message": payload.message,
+            "timestamp": payload.timestamp.isoformat(),
+            "epoch": payload.epoch,
+            "batch": payload.batch,
+        },
+    )
+
     return {"ok": True}
 
 
@@ -281,10 +517,20 @@ async def callback_complete(
     job.result_accuracy = payload.result_accuracy
     job.result_loss = payload.result_loss
     job.epochs_completed = payload.epochs_completed
+    job.last_progress_at = datetime.utcnow()
 
-    await db.flush()
+    await db.commit()
 
-    # Auto-destroy GPU instance to stop billing ($1.99/hr)
+    await progress_manager.broadcast(
+        str(job_id),
+        {
+            "status": "completed",
+            "epochs_completed": job.epochs_completed,
+            "result_accuracy": job.result_accuracy,
+            "result_loss": job.result_loss,
+        },
+    )
+
     asyncio.create_task(training_orchestrator.cleanup_job(job_id))
 
     return {"ok": True}
@@ -311,10 +557,79 @@ async def callback_fail(
 
     job.status = TrainingJobStatus.FAILED
     job.error_message = payload.error_message
+    job.last_progress_at = datetime.utcnow()
 
-    await db.flush()
+    await db.commit()
 
-    # Auto-destroy GPU instance to stop billing ($1.99/hr)
+    await progress_manager.broadcast(
+        str(job_id),
+        {
+            "status": "failed",
+            "error_message": payload.error_message,
+        },
+    )
+
     asyncio.create_task(training_orchestrator.cleanup_job(job_id))
 
     return {"ok": True}
+
+
+@router.delete(
+    "/jobs/{job_id}",
+    summary="Permanently delete a training job and terminate GPU instance",
+)
+async def delete_training_job(
+    job_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+):
+    """Delete a training job from the database and terminate the GPU instance."""
+    result = await db.execute(select(TrainingJob).where(TrainingJob.id == job_id))
+    job = result.scalar_one_or_none()
+    if not job:
+        raise HTTPException(404, "Training job not found")
+
+    instance_id = job.vultr_instance_id
+    await db.delete(job)
+    await db.commit()
+
+    if instance_id:
+        asyncio.create_task(lambda_gpu.destroy_instance(instance_id))
+
+    return {"ok": True, "message": f"Job {job_id} deleted"}
+
+
+@router.get(
+    "/jobs/{job_id}/logs",
+    response_model=LogEntryListResponse,
+    summary="Get training logs for a job",
+)
+async def get_training_logs(
+    job_id: uuid.UUID,
+    level: str | None = Query(None, description="Filter by log level"),
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=1000),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get paginated training logs for a job."""
+    result = await db.execute(select(TrainingJob).where(TrainingJob.id == job_id))
+    job = result.scalar_one_or_none()
+    if not job:
+        raise HTTPException(404, "Training job not found")
+
+    query = select(TrainingLog).where(TrainingLog.job_id == job_id)
+    count_query = select(func.count(TrainingLog.id)).where(TrainingLog.job_id == job_id)
+
+    if level:
+        query = query.where(TrainingLog.level == level.upper())
+        count_query = count_query.where(TrainingLog.level == level.upper())
+
+    total = (await db.execute(count_query)).scalar() or 0
+    result = await db.execute(
+        query.order_by(TrainingLog.timestamp.desc()).offset(skip).limit(limit)
+    )
+    logs = result.scalars().all()
+
+    return LogEntryListResponse(
+        logs=[LogEntry.model_validate(log) for log in logs],
+        total=total,
+    )

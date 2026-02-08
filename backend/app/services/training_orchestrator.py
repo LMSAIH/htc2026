@@ -6,6 +6,7 @@ This module handles the lifecycle of training jobs:
   2. Provisions a Vultr Cloud GPU instance with a startup script (with retry)
   3. The GPU worker runs training and reports back via HTTP callbacks
   4. Cleanup: destroy the GPU instance when done
+  5. Heartbeat monitoring: detects stale jobs and terminates instances
 
 The actual training execution happens in the separate gpu-worker container,
 not in the API process.
@@ -15,6 +16,7 @@ import asyncio
 import logging
 import uuid
 from datetime import datetime, timedelta
+from typing import Optional
 
 import httpx
 from sqlalchemy import select, func
@@ -30,6 +32,8 @@ logger = logging.getLogger(__name__)
 MAX_PROVISION_RETRIES = 3
 PROVISION_TIMEOUT_MINUTES = 15
 ORPHANED_JOB_TIMEOUT_MINUTES = 30
+HEARTBEAT_TIMEOUT_MINUTES = 5
+HEARTBEAT_CHECK_INTERVAL = 60
 
 
 async def _commit(db: AsyncSession) -> None:
@@ -97,7 +101,6 @@ async def _provision_and_monitor(job_id: uuid.UUID) -> None:
                 logger.error("Training job %s not found in DB", job_id)
                 return
 
-            # If the job has already ended, don't provision GPUs (prevents billing leaks)
             if job.status in (
                 TrainingJobStatus.CANCELLED,
                 TrainingJobStatus.COMPLETED,
@@ -128,6 +131,8 @@ async def _provision_and_monitor(job_id: uuid.UUID) -> None:
                 target_accuracy=job.target_accuracy,
                 api_callback_url=settings.API_BASE_URL,
                 callback_secret=settings.CALLBACK_SECRET,
+                training_mode=settings.WORKER_TRAINING_MODE,
+                mission_id=str(job.mission_id),
             )
 
             instance_id = instance_data.get("instance", {}).get("id")
@@ -147,8 +152,6 @@ async def _provision_and_monitor(job_id: uuid.UUID) -> None:
                 "Job %s handed off to GPU worker. Waiting for completion...", job_id
             )
 
-            # If provisioning succeeded, leave the job in TRAINING. The worker will
-            # keep sending status callbacks and will mark completion/failure.
             await _update_status(db, job, TrainingJobStatus.TRAINING)
 
         except Exception as exc:
@@ -179,6 +182,17 @@ async def cleanup_job(job_id: uuid.UUID) -> None:
                     job_id,
                     exc,
                 )
+
+
+async def terminate_instance(instance_id: str) -> None:
+    """
+    Terminate a GPU instance by its ID.
+    """
+    try:
+        await lambda_gpu.destroy_instance(instance_id)
+        logger.info("Terminated GPU instance %s", instance_id)
+    except Exception as exc:
+        logger.error("Failed to terminate GPU instance %s: %s", instance_id, exc)
 
 
 async def cleanup_orphaned_jobs() -> None:
@@ -218,6 +232,89 @@ async def cleanup_orphaned_jobs() -> None:
             await _commit(db)
 
             logger.info("Cleaned up %d orphaned jobs", len(orphaned))
+
+
+async def monitor_heartbeats() -> None:
+    """
+    Background task that monitors job heartbeats.
+    If a job hasn't sent a heartbeat in HEARTBEAT_TIMEOUT_MINUTES,
+    mark it as failed and terminate the GPU instance.
+    """
+    logger.info(
+        "Heartbeat monitor started (interval=%ds, timeout=%dm)",
+        HEARTBEAT_CHECK_INTERVAL,
+        HEARTBEAT_TIMEOUT_MINUTES,
+    )
+
+    while True:
+        try:
+            await _check_stale_heartbeats()
+        except Exception as exc:
+            logger.error("Heartbeat check failed: %s", exc)
+
+        await asyncio.sleep(HEARTBEAT_CHECK_INTERVAL)
+
+
+async def _check_stale_heartbeats() -> None:
+    """
+    Check for jobs with stale heartbeats and terminate them.
+    """
+    cutoff_time = datetime.utcnow() - timedelta(minutes=HEARTBEAT_TIMEOUT_MINUTES)
+
+    async with async_session_maker() as db:
+        result = await db.execute(
+            select(TrainingJob).where(
+                TrainingJob.status == TrainingJobStatus.TRAINING,
+                (
+                    (TrainingJob.last_progress_at.is_(None))
+                    | (TrainingJob.last_progress_at < cutoff_time)
+                ),
+            )
+        )
+        stale_jobs = result.scalars().all()
+
+        for job in stale_jobs:
+            last_heartbeat = job.last_progress_at
+            time_since_heartbeat = (
+                (datetime.utcnow() - last_heartbeat).total_seconds()
+                if last_heartbeat
+                else float("inf")
+            )
+
+            logger.warning(
+                "Job %s has stale heartbeat (last: %s, %.0f seconds ago). Marking as failed.",
+                job.id,
+                last_heartbeat,
+                time_since_heartbeat,
+            )
+
+            job.status = TrainingJobStatus.FAILED
+            job.error_message = (
+                f"No heartbeat for {int(time_since_heartbeat // 60)} minutes"
+            )
+
+            if job.vultr_instance_id:
+                try:
+                    await lambda_gpu.destroy_instance(job.vultr_instance_id)
+                    logger.info(
+                        "Terminated GPU instance %s for stale job %s",
+                        job.vultr_instance_id,
+                        job.id,
+                    )
+                except Exception as exc:
+                    logger.error("Failed to terminate instance: %s", exc)
+
+            await _fire_webhook(
+                job,
+                "failed",
+                f"No heartbeat for {int(time_since_heartbeat // 60)} minutes",
+            )
+
+        if stale_jobs:
+            await _commit(db)
+            logger.info(
+                "Marked %d jobs as failed due to stale heartbeats", len(stale_jobs)
+            )
 
 
 async def _load_job(db: AsyncSession, job_id: uuid.UUID) -> TrainingJob | None:

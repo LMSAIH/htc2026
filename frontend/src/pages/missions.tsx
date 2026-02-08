@@ -9,19 +9,17 @@ import {
   TrendingUp,
   Clock,
   Plus,
-  Database,
-  Activity,
 } from "lucide-react";
 import { motion } from "framer-motion";
-import { Bar, BarChart, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { AnimatedProgress } from "@/components/ui/animated-progress";
 import { AnimatedCard } from "@/components/ui/animated-card";
-import { NumberTicker } from "@/components/magicui/number-ticker";
-import { MISSIONS, getModelsForMission } from "@/lib/mock-data";
+import { MODEL_TYPES, MODEL_TYPE_LIST } from "@/lib/mock-data";
+import type { ModelType } from "@/lib/mock-data";
+import { useStore } from "@/lib/store";
 
 const CATEGORY_EMOJI: Record<string, string> = {
   Agriculture: "🌾",
@@ -32,13 +30,6 @@ const CATEGORY_EMOJI: Record<string, string> = {
 };
 
 type SortKey = "trending" | "recent" | "most-data";
-
-// Chart data from missions
-const chartData = MISSIONS.map((m) => ({
-  name: m.title.split(" ").slice(0, 2).join(" "),
-  contributions: m.current_contributions,
-  target: m.target_contributions,
-}));
 
 // Stagger animation variants
 const containerVariants = {
@@ -51,39 +42,26 @@ const itemVariants = {
 };
 
 export default function MissionsPage() {
+  const { missions, getModels } = useStore();
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<string | null>(null);
+  const [modelTypeFilter, setModelTypeFilter] = useState<ModelType | null>(null);
   const [sort, setSort] = useState<SortKey>("trending");
 
-  const categories = [...new Set(MISSIONS.map((m) => m.category))];
+  const categories = [...new Set(missions.map((m) => m.category))];
 
-  const totalContributions = MISSIONS.reduce(
-    (s, m) => s + m.current_contributions,
-    0,
-  );
-  const totalContributors = MISSIONS.reduce(
-    (s, m) => s + m.contributors.length,
-    0,
-  );
-  const totalFilesCount = MISSIONS.reduce(
-    (s, m) => s + m.datasets.reduce((ss, d) => ss + d.file_count, 0),
-    0,
-  );
-  const totalModels = MISSIONS.reduce(
-    (s, m) => s + getModelsForMission(m.id).length,
-    0,
-  );
-
-  const filtered = MISSIONS.filter((m) => {
+  const filtered = missions.filter((m) => {
     const q = search.toLowerCase();
     const matchSearch =
       !q ||
       m.title.toLowerCase().includes(q) ||
       m.category.toLowerCase().includes(q) ||
       m.reason.toLowerCase().includes(q) ||
-      m.accepted_types.some((t) => t.includes(q));
+      m.accepted_types.some((t) => t.includes(q)) ||
+      MODEL_TYPES[m.model_type].label.toLowerCase().includes(q);
     const matchCategory = !filter || m.category === filter;
-    return matchSearch && matchCategory;
+    const matchModelType = !modelTypeFilter || m.model_type === modelTypeFilter;
+    return matchSearch && matchCategory && matchModelType;
   }).sort((a, b) => {
     if (sort === "recent")
       return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
@@ -117,71 +95,6 @@ export default function MissionsPage() {
             New Mission
           </Button>
         </Link>
-      </motion.div>
-
-      {/* ─── Stat Cards ─── */}
-      <motion.div variants={itemVariants} className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        {[
-          { label: "Contributions", value: totalContributions, icon: FileUp, color: "text-blue-600" },
-          { label: "Contributors", value: totalContributors, icon: Users, color: "text-emerald-600" },
-          { label: "Files Collected", value: totalFilesCount, icon: Database, color: "text-violet-600" },
-          { label: "Trained Models", value: totalModels, icon: Sparkles, color: "text-amber-500" },
-        ].map((stat) => (
-          <AnimatedCard key={stat.label} className="px-4 py-3">
-            <div className="flex items-center gap-2 mb-1">
-              <stat.icon className={`h-4 w-4 ${stat.color}`} />
-              <span className="text-xs text-muted-foreground font-medium">
-                {stat.label}
-              </span>
-            </div>
-            <p className="text-2xl font-bold tabular-nums">
-              <NumberTicker value={stat.value} />
-            </p>
-          </AnimatedCard>
-        ))}
-      </motion.div>
-
-      {/* ─── Chart ─── */}
-      <motion.div variants={itemVariants}>
-        <AnimatedCard className="p-4">
-          <div className="flex items-center gap-2 mb-3">
-            <Activity className="h-4 w-4 text-muted-foreground" />
-            <span className="text-sm font-semibold">Contributions by Mission</span>
-          </div>
-          <div className="h-[200px]">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={chartData} barGap={8}>
-                <XAxis
-                  dataKey="name"
-                  tick={{ fontSize: 11 }}
-                  tickLine={false}
-                  axisLine={false}
-                />
-                <YAxis
-                  tick={{ fontSize: 11 }}
-                  tickLine={false}
-                  axisLine={false}
-                  tickFormatter={(v: number) => (v >= 1000 ? `${(v / 1000).toFixed(0)}k` : String(v))}
-                />
-                <Tooltip
-                  contentStyle={{
-                    borderRadius: 8,
-                    fontSize: 12,
-                    border: "1px solid var(--border)",
-                    background: "var(--background)",
-                    color: "var(--foreground)",
-                  }}
-                />
-                <Bar
-                  dataKey="contributions"
-                  fill="var(--primary)"
-                  radius={[6, 6, 0, 0]}
-                  maxBarSize={48}
-                />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        </AnimatedCard>
       </motion.div>
 
       {/* ─── Search + Filters bar ─── */}
@@ -244,6 +157,33 @@ export default function MissionsPage() {
         ))}
       </motion.div>
 
+      {/* ─── Model Type pills ─── */}
+      <motion.div variants={itemVariants} className="flex flex-wrap gap-2">
+        <button
+          onClick={() => setModelTypeFilter(null)}
+          className={`rounded-full border px-3 py-1 text-[13px] font-medium transition-all ${
+            !modelTypeFilter
+              ? "bg-foreground text-background border-foreground"
+              : "bg-background text-muted-foreground border-border hover:border-foreground/30"
+          }`}
+        >
+          All types
+        </button>
+        {MODEL_TYPE_LIST.map((mt) => (
+          <button
+            key={mt.key}
+            onClick={() => setModelTypeFilter(modelTypeFilter === mt.key ? null : mt.key)}
+            className={`rounded-full border px-3 py-1 text-[13px] font-medium transition-all ${
+              modelTypeFilter === mt.key
+                ? "bg-foreground text-background border-foreground"
+                : "bg-background text-muted-foreground border-border hover:border-foreground/30"
+            }`}
+          >
+            {mt.emoji} {mt.label}
+          </button>
+        ))}
+      </motion.div>
+
       <Separator />
 
       {/* ─── Mission List (card-based) ─── */}
@@ -264,7 +204,8 @@ export default function MissionsPage() {
             (s, d) => s + d.file_count,
             0,
           );
-          const modelCount = getModelsForMission(mission.id).length;
+          const modelCount = getModels(mission.id).length;
+          const mt = MODEL_TYPES[mission.model_type];
 
           return (
             <motion.div key={mission.id} variants={itemVariants}>
@@ -293,6 +234,10 @@ export default function MissionsPage() {
                             Complete
                           </Badge>
                         )}
+                        <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium ${mt.bgColor}`}>
+                          <span>{mt.emoji}</span>
+                          <span className={mt.color}>{mt.label}</span>
+                        </span>
                         {modelCount > 0 && (
                           <span className="inline-flex items-center gap-0.5 text-amber-500 text-[11px] font-medium">
                             <Sparkles className="h-3 w-3" />
@@ -365,8 +310,8 @@ export default function MissionsPage() {
       {/* ─── Footer note ─── */}
       <div className="text-center py-6">
         <p className="text-xs text-muted-foreground">
-          {MISSIONS.length} missions · {MISSIONS.reduce((s, m) => s + m.contributors.length, 0)} contributors ·{" "}
-          {MISSIONS.reduce((s, m) => s + m.datasets.reduce((ss, d) => ss + d.file_count, 0), 0).toLocaleString()} files collected
+          {missions.length} missions · {missions.reduce((s, m) => s + m.contributors.length, 0)} contributors ·{" "}
+          {missions.reduce((s, m) => s + m.datasets.reduce((ss, d) => ss + d.file_count, 0), 0).toLocaleString()} files collected
         </p>
       </div>
     </motion.div>

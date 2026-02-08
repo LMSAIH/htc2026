@@ -1,4 +1,4 @@
-import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
+import { BrowserRouter as Router, Routes, Route, Navigate } from "react-router-dom";
 import { PublicLayout } from "@/components/layout/public-layout";
 import { AppLayout } from "@/components/layout/app-layout";
 import HomePage from "@/pages/home";
@@ -10,6 +10,13 @@ import MyMissionsPage from "@/pages/my-missions";
 import LeaderboardPage from "@/pages/leaderboard";
 import CreateMissionPage from "@/pages/create-mission";
 import AnnotatePage from "@/pages/annotate";
+import { useStore } from "@/lib/store";
+
+function AuthGuard({ children }: { children: React.ReactNode }) {
+  const { isAuthenticated } = useStore();
+  if (!isAuthenticated) return <Navigate to="/login" replace />;
+  return <>{children}</>;
+}
 
 function App() {
   return (
@@ -23,7 +30,14 @@ function App() {
         <Route path="/signup" element={<SignupPage />} />
 
         {/* App routes (behind auth) */}
-        <Route path="/app" element={<AppLayout />}>
+        <Route
+          path="/app"
+          element={
+            <AuthGuard>
+              <AppLayout />
+            </AuthGuard>
+          }
+        >
           <Route index element={<MissionsPage />} />
           <Route path="missions/new" element={<CreateMissionPage />} />
           <Route path="missions/:id" element={<MissionDetailPage />} />

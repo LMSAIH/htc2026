@@ -1,6 +1,76 @@
 // ─── Types ──────────────────────────────────────────────────────────
 export type Role = "contributor" | "annotator" | "reviewer";
 
+export type ModelType =
+  | "vision"
+  | "text"
+  | "audio"
+  | "multimodal"
+  | "tabular"
+  | "time-series";
+
+export interface ModelTypeInfo {
+  key: ModelType;
+  label: string;
+  emoji: string;
+  description: string;
+  color: string;
+  bgColor: string;
+}
+
+export const MODEL_TYPES: Record<ModelType, ModelTypeInfo> = {
+  vision: {
+    key: "vision",
+    label: "Vision",
+    emoji: "👁️",
+    description: "Image classification, object detection, segmentation",
+    color: "text-blue-600",
+    bgColor: "bg-blue-50 dark:bg-blue-950/40 border-blue-200 dark:border-blue-800",
+  },
+  text: {
+    key: "text",
+    label: "Text / NLP",
+    emoji: "📝",
+    description: "Text classification, sentiment analysis, NER, translation",
+    color: "text-emerald-600",
+    bgColor: "bg-emerald-50 dark:bg-emerald-950/40 border-emerald-200 dark:border-emerald-800",
+  },
+  audio: {
+    key: "audio",
+    label: "Audio",
+    emoji: "🎙️",
+    description: "Speech recognition, audio classification, speaker ID",
+    color: "text-violet-600",
+    bgColor: "bg-violet-50 dark:bg-violet-950/40 border-violet-200 dark:border-violet-800",
+  },
+  multimodal: {
+    key: "multimodal",
+    label: "Multimodal",
+    emoji: "🔀",
+    description: "Vision-language, multi-input models, cross-modal learning",
+    color: "text-amber-600",
+    bgColor: "bg-amber-50 dark:bg-amber-950/40 border-amber-200 dark:border-amber-800",
+  },
+  tabular: {
+    key: "tabular",
+    label: "Tabular",
+    emoji: "📊",
+    description: "Structured data, classification, regression on tables",
+    color: "text-rose-600",
+    bgColor: "bg-rose-50 dark:bg-rose-950/40 border-rose-200 dark:border-rose-800",
+  },
+  "time-series": {
+    key: "time-series",
+    label: "Time Series",
+    emoji: "📈",
+    description: "Forecasting, anomaly detection, temporal pattern analysis",
+    color: "text-cyan-600",
+    bgColor: "bg-cyan-50 dark:bg-cyan-950/40 border-cyan-200 dark:border-cyan-800",
+  },
+};
+
+export const MODEL_TYPE_LIST = Object.values(MODEL_TYPES);
+
 export interface UserProfile {
   id: string;
   name: string;
@@ -31,7 +101,7 @@ export interface DataFile {
   filename: string;
   size_kb: number;
   type: string;
-  status: "pending" | "approved" | "rejected" | "needs_annotation";
+  status: "pending" | "approved" | "rejected" | "needs_annotation" | "pending_review";
   contributor_id: string;
   contributor_name: string;
   uploaded_at: string;
@@ -47,6 +117,19 @@ export interface Annotation {
   created_at: string;
 }
 
+export interface MissionTaskConfig {
+  /** Which annotation task type from the template system */
+  type: import("./annotation-tasks").AnnotationTaskType;
+  /** Override the template's default config (labels, classes, etc.) */
+  configOverrides?: Partial<import("./annotation-tasks").TaskConfig>;
+  /** Custom title for this task in the context of this mission */
+  customTitle?: string;
+  /** Custom instruction text */
+  customInstruction?: string;
+  /** Whether this task is required to submit */
+  required?: boolean;
+}
+
 export interface Mission {
   id: string;
   title: string;
@@ -54,6 +137,7 @@ export interface Mission {
   description: string;
   how_to_contribute: string;
   category: string;
+  model_type: ModelType;
   status: "active" | "completed" | "draft";
   owner_id: string;
   owner_name: string;
@@ -64,6 +148,8 @@ export interface Mission {
   contributors: MissionContributor[];
   created_at: string;
   model_available: boolean;
+  /** Model-type-aware annotation task configuration */
+  configuredTasks?: MissionTaskConfig[];
 }
 
 export interface MissionContributor {
@@ -148,6 +234,7 @@ export const MISSIONS: Mission[] = [
     how_to_contribute:
       "1. Take a clear, close-up photo of a plant leaf (healthy or diseased).\n2. Select the crop type from the dropdown.\n3. If you know the disease, add it in the label field — otherwise leave it blank for annotators.\n4. Upload the image. Our annotators and reviewers will handle the rest!",
     category: "Agriculture",
+    model_type: "vision",
     status: "active",
     owner_id: "u2",
     owner_name: "Dr. Priya Sharma",
@@ -164,6 +251,7 @@ export const MISSIONS: Mission[] = [
           { id: "f2", filename: "tomato-healthy-042.jpg", size_kb: 1890, type: ".jpg", status: "approved", contributor_id: "u3", contributor_name: "Maria Santos", uploaded_at: "2026-01-14T14:30:00Z", annotations: [{ id: "a2", annotator_id: "u5", annotator_name: "Kim Chen", label: "Healthy", notes: "", created_at: "2026-01-15T09:00:00Z" }] },
           { id: "f3", filename: "tomato-septoria-008.png", size_kb: 3120, type: ".png", status: "needs_annotation", contributor_id: "u6", contributor_name: "Jean Dupont", uploaded_at: "2026-02-03T11:20:00Z" },
           { id: "f4", filename: "tomato-leaf-curl-019.jpg", size_kb: 2560, type: ".jpg", status: "pending", contributor_id: "u4", contributor_name: "Raj Patel", uploaded_at: "2026-02-06T16:45:00Z" },
+          { id: "f4b", filename: "tomato-mosaic-033.jpg", size_kb: 2890, type: ".jpg", status: "pending_review", contributor_id: "u6", contributor_name: "Jean Dupont", uploaded_at: "2026-02-05T14:00:00Z", annotations: [{ id: "a6", annotator_id: "u5", annotator_name: "Kim Chen", label: "Mosaic Virus", notes: "Yellow mottling pattern on leaves", created_at: "2026-02-06T09:00:00Z" }] },
         ],
         created_at: "2025-11-01T00:00:00Z",
       },
@@ -177,6 +265,7 @@ export const MISSIONS: Mission[] = [
         sample_files: [
           { id: "f5", filename: "rice-blast-031.jpg", size_kb: 1980, type: ".jpg", status: "approved", contributor_id: "u4", contributor_name: "Raj Patel", uploaded_at: "2026-01-20T09:00:00Z", annotations: [{ id: "a3", annotator_id: "u1", annotator_name: "Alex Rivera", label: "Rice Blast", notes: "Diamond-shaped lesions", created_at: "2026-01-21T10:00:00Z" }] },
           { id: "f6", filename: "rice-healthy-015.jpg", size_kb: 2100, type: ".jpg", status: "pending", contributor_id: "u7", contributor_name: "Yuki Tanaka", uploaded_at: "2026-02-04T07:15:00Z" },
+          { id: "f6b", filename: "rice-sheath-blight-009.jpg", size_kb: 1760, type: ".jpg", status: "pending_review", contributor_id: "u3", contributor_name: "Maria Santos", uploaded_at: "2026-02-03T11:00:00Z", annotations: [{ id: "a7", annotator_id: "u1", annotator_name: "Alex Rivera", label: "Sheath Blight", notes: "Characteristic lesions on leaf sheath", created_at: "2026-02-04T08:30:00Z" }] },
         ],
         created_at: "2025-12-15T00:00:00Z",
       },
@@ -193,6 +282,55 @@ export const MISSIONS: Mission[] = [
     ],
     created_at: "2025-10-01T00:00:00Z",
     model_available: true,
+    configuredTasks: [
+      {
+        type: "image_classification",
+        required: true,
+        customTitle: "Leaf Health Status",
+        customInstruction: "Is this leaf healthy or does it show signs of disease?",
+        configOverrides: {
+          labels: [
+            { id: "healthy", label: "Healthy", color: "#10b981", description: "No visible spots, discoloration, or wilting", hotkey: "1" },
+            { id: "diseased", label: "Diseased", color: "#ef4444", description: "Visible spots, lesions, discoloration, or wilting", hotkey: "2" },
+            { id: "uncertain", label: "Uncertain", color: "#6b7280", description: "Can't tell from this image", hotkey: "3" },
+          ],
+        },
+      },
+      {
+        type: "bounding_box",
+        required: false,
+        customTitle: "Mark Disease Regions",
+        customInstruction: "Draw bounding boxes around any visible disease regions on the leaf.",
+        configOverrides: {
+          classes: [
+            { id: "blight", label: "Blight", color: "#ef4444" },
+            { id: "spot", label: "Leaf Spot", color: "#f59e0b" },
+            { id: "curl", label: "Leaf Curl", color: "#8b5cf6" },
+            { id: "wilt", label: "Wilting", color: "#06b6d4" },
+          ],
+        },
+      },
+      {
+        type: "visual_qa",
+        required: false,
+        customTitle: "Disease Details (VQA)",
+        customInstruction: "Answer questions about the disease characteristics visible in this image.",
+      },
+      {
+        type: "numeric_rating",
+        required: false,
+        customTitle: "Severity Score",
+        customInstruction: "Rate the severity of the disease from 1 (mild) to 5 (severe).",
+        configOverrides: { min: 1, max: 5, step: 1 },
+      },
+      {
+        type: "free_text",
+        required: false,
+        customTitle: "Additional Notes",
+        customInstruction: "Any additional observations about this sample?",
+        configOverrides: { placeholder: "e.g. 'Lesions concentrated on leaf tips, early stage…'" },
+      },
+    ],
   },
   {
     id: "m2",
@@ -204,6 +342,7 @@ export const MISSIONS: Mission[] = [
     how_to_contribute:
       "1. Export a CSV or JSON file from your air quality sensor (we support PurpleAir, AirGradient, SDS011 and generic formats).\n2. Make sure it includes a timestamp column and at least one pollutant reading.\n3. Add your approximate location in the metadata field.\n4. Upload — our pipeline auto-validates the schema.",
     category: "Environment",
+    model_type: "time-series",
     status: "active",
     owner_id: "u1",
     owner_name: "Alex Rivera",
@@ -245,6 +384,47 @@ export const MISSIONS: Mission[] = [
     ],
     created_at: "2025-09-15T00:00:00Z",
     model_available: true,
+    configuredTasks: [
+      {
+        type: "data_validation",
+        required: true,
+        customTitle: "Data Quality Check",
+        customInstruction: "Does this sensor reading file look valid?",
+        configOverrides: {
+          labels: [
+            { id: "valid", label: "Valid", color: "#10b981", description: "Properly formatted, timestamps look correct", hotkey: "1" },
+            { id: "suspect", label: "Suspect", color: "#f59e0b", description: "Some values look off or gaps in timestamps", hotkey: "2" },
+            { id: "invalid", label: "Invalid", color: "#ef4444", description: "Corrupted, wrong format, or nonsense values", hotkey: "3" },
+          ],
+        },
+      },
+      {
+        type: "event_annotation",
+        required: false,
+        customTitle: "Mark Pollution Events",
+        customInstruction: "Select time ranges where pollution spikes or notable events occur.",
+        configOverrides: {
+          segmentLabels: [
+            { id: "spike", label: "Pollution Spike", color: "#ef4444" },
+            { id: "drop", label: "Clean Air Window", color: "#10b981" },
+            { id: "sensor_fault", label: "Sensor Fault", color: "#f59e0b" },
+          ],
+        },
+      },
+      {
+        type: "pattern_classification",
+        required: false,
+        customTitle: "Trend Pattern",
+        customInstruction: "What trend pattern do you observe in this time window?",
+      },
+      {
+        type: "free_text",
+        required: false,
+        customTitle: "Observations",
+        customInstruction: "Note any interesting patterns or potential sensor issues.",
+        configOverrides: { placeholder: "e.g. 'Rush hour spike visible around 8 AM…'" },
+      },
+    ],
   },
   {
     id: "m3",
@@ -256,6 +436,7 @@ export const MISSIONS: Mission[] = [
     how_to_contribute:
       "1. Record a short audio clip (5–30 seconds) of natural speech or storytelling.\n2. Select the language from our list (or type it in if not listed).\n3. If possible, add a transcription or translation in the notes field.\n4. Upload the audio file. Annotators will verify the language and add transcriptions.",
     category: "Languages",
+    model_type: "audio",
     status: "active",
     owner_id: "u9",
     owner_name: "Dr. Lin Zhao",
@@ -297,6 +478,57 @@ export const MISSIONS: Mission[] = [
     ],
     created_at: "2025-11-01T00:00:00Z",
     model_available: false,
+    configuredTasks: [
+      {
+        type: "audio_classification",
+        required: true,
+        customTitle: "Audio Quality",
+        customInstruction: "Rate the recording quality of this audio clip.",
+        configOverrides: {
+          labels: [
+            { id: "clear", label: "Clear", color: "#10b981", description: "Speech is easily understandable", hotkey: "1" },
+            { id: "noisy", label: "Noisy", color: "#f59e0b", description: "Background noise but speech is audible", hotkey: "2" },
+            { id: "poor", label: "Poor", color: "#ef4444", description: "Very hard to hear the speaker", hotkey: "3" },
+          ],
+        },
+      },
+      {
+        type: "audio_transcription",
+        required: false,
+        customTitle: "Transcription",
+        customInstruction: "If you understand the language, transcribe what you hear. Otherwise, describe the speech patterns.",
+        configOverrides: { placeholder: "Type what you hear, or describe the speech patterns…" },
+      },
+      {
+        type: "language_identification",
+        required: true,
+        customTitle: "Language",
+        customInstruction: "Identify the language being spoken in this clip.",
+        configOverrides: {
+          labels: [
+            { id: "quechua", label: "Quechua", color: "#3b82f6" },
+            { id: "nahuatl", label: "Nahuatl", color: "#10b981" },
+            { id: "guarani", label: "Guaraní", color: "#8b5cf6" },
+            { id: "hmong", label: "Hmong", color: "#ec4899" },
+            { id: "karen", label: "Karen", color: "#f59e0b" },
+            { id: "other", label: "Other", color: "#6b7280" },
+          ],
+        },
+      },
+      {
+        type: "speaker_diarization",
+        required: false,
+        customTitle: "Speaker Segments",
+        customInstruction: "If multiple speakers are present, mark the segments where each speaker talks.",
+      },
+      {
+        type: "numeric_rating",
+        required: true,
+        customTitle: "Speaker Count",
+        customInstruction: "How many distinct speakers can you hear?",
+        configOverrides: { min: 1, max: 10, step: 1 },
+      },
+    ],
   },
   {
     id: "m4",
@@ -308,6 +540,7 @@ export const MISSIONS: Mission[] = [
     how_to_contribute:
       "1. Test water at a source (well, river, tap) using a basic kit or meter.\n2. Record pH, turbidity, TDS if available and take a photo of the source.\n3. Note the GPS coordinates (your phone camera usually embeds these).\n4. Upload the test result (photo or CSV) and fill in the metadata fields.",
     category: "Public Health",
+    model_type: "multimodal",
     status: "active",
     owner_id: "u8",
     owner_name: "Amira Hassan",
@@ -347,6 +580,50 @@ export const MISSIONS: Mission[] = [
     ],
     created_at: "2025-10-10T00:00:00Z",
     model_available: false,
+    configuredTasks: [
+      {
+        type: "modality_alignment",
+        required: true,
+        customTitle: "Data Consistency",
+        customInstruction: "Do the water test readings match the photo of the source? Check GPS coordinates, timestamp, and conditions.",
+        configOverrides: {
+          labels: [
+            { id: "aligned", label: "Consistent", color: "#10b981", description: "Photo, GPS, and test data match up", hotkey: "1" },
+            { id: "mismatch", label: "Inconsistent", color: "#ef4444", description: "Data doesn't match the photo or location", hotkey: "2" },
+            { id: "partial", label: "Partially", color: "#f59e0b", description: "Some data matches but not all", hotkey: "3" },
+          ],
+        },
+      },
+      {
+        type: "cross_modal_qa",
+        required: false,
+        customTitle: "Water Source Assessment",
+        customInstruction: "Using both the photo and the test data, answer: Is this water source safe for drinking?",
+        configOverrides: { placeholder: "Assess the water source safety based on all available data…" },
+      },
+      {
+        type: "image_classification",
+        required: true,
+        customTitle: "Source Type",
+        customInstruction: "What type of water source is shown in the photo?",
+        configOverrides: {
+          labels: [
+            { id: "well", label: "Well", color: "#3b82f6" },
+            { id: "river", label: "River / Stream", color: "#06b6d4" },
+            { id: "tap", label: "Tap / Pipe", color: "#8b5cf6" },
+            { id: "spring", label: "Natural Spring", color: "#10b981" },
+            { id: "rainwater", label: "Rainwater Collection", color: "#f59e0b" },
+            { id: "other", label: "Other", color: "#6b7280" },
+          ],
+        },
+      },
+      {
+        type: "data_validation",
+        required: true,
+        customTitle: "Test Data Quality",
+        customInstruction: "Are the water test readings (pH, turbidity, TDS) within expected ranges?",
+      },
+    ],
   },
   {
     id: "m5",
@@ -358,6 +635,7 @@ export const MISSIONS: Mission[] = [
     how_to_contribute:
       "1. Export images from your camera trap (SD card or cloud dashboard).\n2. Name files descriptively if possible (location-date).\n3. Upload a batch — our annotators will identify species.\n4. If you can ID species yourself, add labels in the annotation field!",
     category: "Conservation",
+    model_type: "vision",
     status: "completed",
     owner_id: "u5",
     owner_name: "Kim Chen",
@@ -384,6 +662,53 @@ export const MISSIONS: Mission[] = [
     ],
     created_at: "2025-07-01T00:00:00Z",
     model_available: true,
+    configuredTasks: [
+      {
+        type: "bounding_box",
+        required: true,
+        customTitle: "Mark Animals",
+        customInstruction: "Draw bounding boxes around each animal visible in the camera trap image.",
+        configOverrides: {
+          classes: [
+            { id: "zebra", label: "Zebra", color: "#3b82f6" },
+            { id: "wildebeest", label: "Wildebeest", color: "#10b981" },
+            { id: "elephant", label: "Elephant", color: "#6b7280" },
+            { id: "lion", label: "Lion", color: "#f59e0b" },
+            { id: "giraffe", label: "Giraffe", color: "#8b5cf6" },
+            { id: "hyena", label: "Hyena", color: "#ec4899" },
+            { id: "other", label: "Other Species", color: "#06b6d4" },
+          ],
+        },
+      },
+      {
+        type: "image_classification",
+        required: true,
+        customTitle: "Scene Quality",
+        customInstruction: "How useful is this camera trap image for species identification?",
+        configOverrides: {
+          labels: [
+            { id: "excellent", label: "Excellent", color: "#10b981", description: "Clear view, animals easy to identify", hotkey: "1" },
+            { id: "good", label: "Good", color: "#3b82f6", description: "Decent view, most animals identifiable", hotkey: "2" },
+            { id: "poor", label: "Poor", color: "#f59e0b", description: "Blurry, distant, or partially obscured", hotkey: "3" },
+            { id: "empty", label: "No Animals", color: "#6b7280", description: "False trigger — no wildlife visible", hotkey: "4" },
+          ],
+        },
+      },
+      {
+        type: "numeric_rating",
+        required: true,
+        customTitle: "Animal Count",
+        customInstruction: "How many individual animals can you see in this image?",
+        configOverrides: { min: 0, max: 50, step: 1 },
+      },
+      {
+        type: "free_text",
+        required: false,
+        customTitle: "Behavioral Notes",
+        customInstruction: "Describe any notable animal behavior, time of day, or environmental conditions.",
+        configOverrides: { placeholder: "e.g. 'Dawn, 3 zebras grazing, 1 wildebeest walking…'" },
+      },
+    ],
   },
 ];
 
@@ -735,4 +1060,53 @@ export function getFilesNeedingAnnotation(missionId: string): DataFile[] {
   return mission.datasets.flatMap((d) =>
     d.sample_files.filter((f) => f.status === "needs_annotation"),
   );
+}
+
+import { TASK_TEMPLATES } from "./annotation-tasks";
+
+// ─── Resolved annotation templates per mission ─────────────────────
+export interface ResolvedMissionTask {
+  /** Unique key for react rendering */
+  key: string;
+  title: string;
+  instruction: string;
+  required: boolean;
+  template: import("./annotation-tasks").AnnotationTaskTemplate;
+}
+
+/**
+ * Resolves a mission's configuredTasks into full template objects
+ * with merged config overrides. Returns empty array if no configured tasks.
+ */
+export function getMissionAnnotationTemplates(
+  missionId: string,
+): ResolvedMissionTask[] {
+  const mission = getMissionById(missionId);
+  if (!mission) return [];
+  return resolveAnnotationTemplates(mission);
+}
+
+/** Resolve annotation templates directly from a Mission object (works with store data) */
+export function resolveAnnotationTemplates(
+  mission: Mission,
+): ResolvedMissionTask[] {
+  if (!mission.configuredTasks) return [];
+
+  return mission.configuredTasks
+    .map((cfg, idx) => {
+      const tpl = TASK_TEMPLATES.find((t) => t.type === cfg.type);
+      if (!tpl) return null;
+      const merged = {
+        ...tpl,
+        defaultConfig: { ...tpl.defaultConfig, ...cfg.configOverrides },
+      };
+      return {
+        key: `${mission.id}-${cfg.type}-${idx}`,
+        title: cfg.customTitle ?? tpl.label,
+        instruction: cfg.customInstruction ?? tpl.description,
+        required: cfg.required ?? false,
+        template: merged,
+      };
+    })
+    .filter(Boolean) as ResolvedMissionTask[];
 }

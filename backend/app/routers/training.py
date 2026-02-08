@@ -119,6 +119,8 @@ async def start_training(
     payload: TrainJobRequest,
     db: AsyncSession = Depends(get_db),
 ):
+    settings = get_settings()
+
     # 1. Verify mission exists
     mission = (
         await db.execute(select(Mission).where(Mission.id == mission_id))

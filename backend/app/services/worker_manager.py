@@ -436,6 +436,12 @@ async def is_worker_online() -> bool:
         if worker.status in (WorkerStatus.online, WorkerStatus.busy):
             # Double-check heartbeat freshness
             if worker.last_seen_at:
-                age = (datetime.utcnow() - worker.last_seen_at).total_seconds()
+                now = datetime.now(timezone.utc)
+                last_seen = (
+                    worker.last_seen_at.replace(tzinfo=timezone.utc)
+                    if worker.last_seen_at.tzinfo is None
+                    else worker.last_seen_at
+                )
+                age = (now - last_seen).total_seconds()
                 return age < WORKER_OFFLINE_TIMEOUT_SECONDS
         return False

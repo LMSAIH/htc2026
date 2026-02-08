@@ -148,8 +148,8 @@
     @apply bg-background text-foreground;
   }
   h1, h2, h3, h4, h5, h6 {
-    font-family: var(--font-display);
-    font-weight: 600;
+    font-family: var(--font-body);
+    font-weight: 700;
     letter-spacing: -0.02em;
   }
   code, pre, .mono {
@@ -196,4 +196,9 @@
 
 @utility animate-border-beam {
   animation: border-beam calc(var(--duration)) infinite linear;
+}
+
+::view-transition-old(root), ::view-transition-new(root) {
+    animation: none;
+    mix-blend-mode: normal;
 }

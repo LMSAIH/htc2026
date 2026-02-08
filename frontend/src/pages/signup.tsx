@@ -5,19 +5,27 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { useStore } from "@/lib/store";
 
 export default function SignupPage() {
   const navigate = useNavigate();
+  const { signup, isAuthenticated } = useStore();
   const [loading, setLoading] = useState(false);
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
 
+  // Redirect if already logged in
+  if (isAuthenticated) {
+    navigate("/app", { replace: true });
+    return null;
+  }
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
-    // TODO: real auth — for now just navigate into app
-    await new Promise((r) => setTimeout(r, 600));
+    await new Promise((r) => setTimeout(r, 400));
+    signup(name, email, password);
     setLoading(false);
     navigate("/app");
   };

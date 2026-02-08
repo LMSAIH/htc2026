@@ -7,7 +7,7 @@ import {
   Settings,
   User,
 } from "lucide-react";
-import { CURRENT_USER } from "@/lib/mock-data";
+import { useStore } from "@/lib/store";
 import {
   Sidebar,
   SidebarContent,
@@ -25,6 +25,7 @@ import {
   SidebarRail,
 } from "@/components/ui/sidebar";
 import { Separator } from "@/components/ui/separator";
+import { AnimatedThemeToggler } from "@/components/ui/animated-theme-toggler";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -44,6 +45,7 @@ const navItems = [
 export function AppLayout() {
   const location = useLocation();
   const navigate = useNavigate();
+  const { user, logout } = useStore();
 
   const isActive = (href: string) => {
     if (href === "/app")
@@ -97,9 +99,9 @@ export function AppLayout() {
                 <DropdownMenuTrigger asChild>
                   <SidebarMenuButton className="w-full">
                     <Avatar className="h-6 w-6">
-                      <AvatarFallback className="text-xs">{CURRENT_USER.avatar}</AvatarFallback>
+                      <AvatarFallback className="text-xs">{user?.avatar ?? "?"}</AvatarFallback>
                     </Avatar>
-                    <span className="truncate">{CURRENT_USER.name}</span>
+                    <span className="truncate">{user?.name ?? "Guest"}</span>
                   </SidebarMenuButton>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent
@@ -107,7 +109,7 @@ export function AppLayout() {
                   align="start"
                   className="w-56"
                 >
-                  <DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => navigate("/app/my-missions")}>
                     <User className="mr-2 h-4 w-4" />
                     Profile
                   </DropdownMenuItem>
@@ -116,7 +118,7 @@ export function AppLayout() {
                     Settings
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
-                  <DropdownMenuItem onClick={() => navigate("/login")}>
+                  <DropdownMenuItem onClick={() => { logout(); navigate("/login"); }}>
                     <LogOut className="mr-2 h-4 w-4" />
                     Log out
                   </DropdownMenuItem>
@@ -137,6 +139,9 @@ export function AppLayout() {
           <span className="text-sm font-medium text-muted-foreground">
             {navItems.find((n) => isActive(n.href))?.title ?? "DataForAll"}
           </span>
+          <div className="ml-auto">
+            <AnimatedThemeToggler className="h-8 w-8 rounded-md flex items-center justify-center hover:bg-muted transition-colors [&_svg]:h-4 [&_svg]:w-4" />
+          </div>
         </header>
 
         {/* Page content */}

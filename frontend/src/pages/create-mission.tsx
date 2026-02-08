@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import {
   ArrowLeft,
@@ -6,6 +6,7 @@ import {
   X,
   Upload,
   CheckCircle2,
+  Sparkles,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -20,6 +21,17 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { MODEL_TYPE_LIST } from "@/lib/mock-data";
+import type { ModelType } from "@/lib/mock-data";
+import {
+  getTemplatesForModelType,
+  getRecommendedTemplates,
+  groupTemplatesByCategory,
+  CATEGORY_LABELS,
+  type AnnotationTaskType,
+  type AnnotationTaskTemplate,
+} from "@/lib/annotation-tasks";
+import { useStore } from "@/lib/store";
 
 const CATEGORIES = [
   "Agriculture",
@@ -52,12 +64,14 @@ const COMMON_FILE_TYPES = [
 
 export default function CreateMissionPage() {
   const navigate = useNavigate();
+  const { addMission } = useStore();
 
   const [title, setTitle] = useState("");
   const [reason, setReason] = useState("");
   const [description, setDescription] = useState("");
   const [howTo, setHowTo] = useState("");
   const [category, setCategory] = useState("");
+  const [modelType, setModelType] = useState<ModelType | "">("" );
   const [targetContributions, setTargetContributions] = useState("1000");
   const [acceptedTypes, setAcceptedTypes] = useState<string[]>([]);
   const [customType, setCustomType] = useState("");
@@ -66,6 +80,47 @@ export default function CreateMissionPage() {
   const [datasets, setDatasets] = useState<
     { name: string; description: string }[]
   >([{ name: "", description: "" }]);
+
+  // Annotation Tasks
+  const [selectedTasks, setSelectedTasks] = useState<Set<AnnotationTaskType>>(
+    new Set(),
+  );
+
+  const availableTemplates = useMemo(
+    () => (modelType ? getTemplatesForModelType(modelType as ModelType) : []),
+    [modelType],
+  );
+
+  const recommendedTypes = useMemo(
+    () =>
+      modelType
+        ? new Set(
+            getRecommendedTemplates(modelType as ModelType).map((t) => t.type),
+          )
+        : new Set<AnnotationTaskType>(),
+    [modelType],
+  );
+
+  const groupedTemplates = useMemo(
+    () => groupTemplatesByCategory(availableTemplates),
+    [availableTemplates],
+  );
+
+  // Auto-select recommended tasks when model type changes
+  const handleModelTypeChange = (v: ModelType) => {
+    setModelType(v);
+    const recs = getRecommendedTemplates(v).map((t) => t.type);
+    setSelectedTasks(new Set(recs));
+  };
+
+  const toggleTask = (type: AnnotationTaskType) => {
+    setSelectedTasks((prev) => {
+      const next = new Set(prev);
+      if (next.has(type)) next.delete(type);
+      else next.add(type);
+      return next;
+    });
+  };
 
   const [creating, setCreating] = useState(false);
   const [done, setDone] = useState(false);
@@ -105,17 +160,36 @@ export default function CreateMissionPage() {
     reason.trim() &&
     description.trim() &&
     category &&
+    modelType &&
     acceptedTypes.length > 0 &&
     datasets[0].name.trim();
+
+  const [createdId, setCreatedId] = useState<string | null>(null);
 
   const handleCreate = () => {
     if (!isValid) return;
     setCreating(true);
     setTimeout(() => {
+      const missionId = addMission({
+        title,
+        reason,
+        description,
+        how_to_contribute: howTo,
+        category,
+        model_type: modelType as ModelType,
+        target_contributions: parseInt(targetContributions) || 1000,
+        accepted_types: acceptedTypes,
+        datasets: datasets.filter((d) => d.name.trim()),
+        configuredTasks: Array.from(selectedTasks).map((type) => ({
+          type,
+          required: false,
+        })),
+      });
+      setCreatedId(missionId);
       setCreating(false);
       setDone(true);
-      setTimeout(() => navigate("/app"), 2000);
-    }, 1500);
+      setTimeout(() => navigate(`/app/missions/${missionId}`), 2000);
+    }, 800);
   };
 
   if (done) {
@@ -171,8 +245,8 @@ export default function CreateMissionPage() {
           </p>
         </div>
 
-        {/* Category + Target */}
-        <div className="grid sm:grid-cols-2 gap-4">
+        {/* Category + Model Type + Target */}
+        <div className="grid sm:grid-cols-3 gap-4">
           <div className="space-y-2">
             <Label className="text-[14px] font-semibold">
               Category <span className="text-red-500">*</span>
@@ -189,6 +263,30 @@ export default function CreateMissionPage() {
                 ))}
               </SelectContent>
             </Select>
+          </div>
+
+          <div className="space-y-2">
+            <Label className="text-[14px] font-semibold">
+              Model Type <span className="text-red-500">*</span>
+            </Label>
+            <Select value={modelType} onValueChange={(v) => handleModelTypeChange(v as ModelType)}>
+              <SelectTrigger className="h-11">
+                <SelectValue placeholder="Select model type" />
+              </SelectTrigger>
+              <SelectContent>
+                {MODEL_TYPE_LIST.map((mt) => (
+                  <SelectItem key={mt.key} value={mt.key}>
+                    <span className="flex items-center gap-2">
+                      <span>{mt.emoji}</span>
+                      <span>{mt.label}</span>
+                    </span>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-[12px] text-muted-foreground">
+              What kind of model will this data train?
+            </p>
           </div>
 
           <div className="space-y-2">
@@ -254,6 +352,118 @@ export default function CreateMissionPage() {
             Tip: Numbered steps work best. "1. Take a photo… 2. Upload it…"
           </p>
         </div>
+
+        <Separator />
+
+        {/* ─── Annotation Tasks ─── */}
+        {modelType && (
+          <div className="space-y-4">
+            <div>
+              <Label className="text-[14px] font-semibold">
+                Annotation Tasks
+              </Label>
+              <p className="text-[12px] text-muted-foreground mt-0.5">
+                Choose which annotation tasks annotators will complete for each
+                file. Recommended tasks for this model type are pre-selected.
+              </p>
+            </div>
+
+            {selectedTasks.size > 0 && (
+              <div className="flex items-center gap-2 text-[12px]">
+                <Badge variant="secondary" className="text-[11px]">
+                  {selectedTasks.size} task{selectedTasks.size !== 1 && "s"}{" "}
+                  selected
+                </Badge>
+                <button
+                  type="button"
+                  onClick={() => setSelectedTasks(new Set())}
+                  className="text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  Clear all
+                </button>
+                <span className="text-muted-foreground">·</span>
+                <button
+                  type="button"
+                  onClick={() => setSelectedTasks(new Set(recommendedTypes))}
+                  className="text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1"
+                >
+                  <Sparkles className="h-3 w-3" />
+                  Reset to recommended
+                </button>
+              </div>
+            )}
+
+            <div className="space-y-5">
+              {(
+                Object.entries(groupedTemplates) as [
+                  string,
+                  AnnotationTaskTemplate[],
+                ][]
+              ).map(([cat, templates]) => (
+                <div key={cat} className="space-y-2">
+                  <span className="text-[12px] font-semibold text-muted-foreground uppercase tracking-wider">
+                    {CATEGORY_LABELS[cat as keyof typeof CATEGORY_LABELS] ??
+                      cat}
+                  </span>
+                  <div className="grid gap-2">
+                    {templates.map((tpl) => {
+                      const active = selectedTasks.has(tpl.type);
+                      const isRec = recommendedTypes.has(tpl.type);
+                      return (
+                        <button
+                          key={tpl.type}
+                          type="button"
+                          onClick={() => toggleTask(tpl.type)}
+                          className={`w-full text-left rounded-lg border p-3 transition-all ${
+                            active
+                              ? "border-primary bg-primary/5 ring-1 ring-primary"
+                              : "border-border hover:border-primary/30 hover:bg-muted/30"
+                          }`}
+                        >
+                          <div className="flex items-start gap-3">
+                            <div
+                              className={`mt-0.5 h-5 w-5 rounded-md border-2 flex items-center justify-center shrink-0 transition-all ${
+                                active
+                                  ? "border-primary bg-primary"
+                                  : "border-muted-foreground/30"
+                              }`}
+                            >
+                              {active && (
+                                <CheckCircle2 className="h-3 w-3 text-white" />
+                              )}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2">
+                                <span className="text-sm">
+                                  {tpl.emoji}
+                                </span>
+                                <span className="text-[13px] font-medium">
+                                  {tpl.label}
+                                </span>
+                                {isRec && (
+                                  <Badge
+                                    variant="secondary"
+                                    className="text-[10px] px-1.5 py-0 bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-400 border-amber-200 dark:border-amber-800"
+                                  >
+                                    <Sparkles className="h-2.5 w-2.5 mr-0.5" />
+                                    Recommended
+                                  </Badge>
+                                )}
+                              </div>
+                              <p className="text-[12px] text-muted-foreground mt-0.5 leading-snug">
+                                {tpl.description}
+                              </p>
+                            </div>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         <Separator />
 

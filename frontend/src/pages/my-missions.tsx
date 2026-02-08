@@ -11,11 +11,10 @@ import { Progress } from "@/components/ui/progress";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Separator } from "@/components/ui/separator";
 import {
-  getUserMissions,
   getRoleLabel,
-  CURRENT_USER,
   type Role,
 } from "@/lib/mock-data";
+import { useStore } from "@/lib/store";
 
 const CATEGORY_EMOJI: Record<string, string> = {
   Agriculture: "🌾",
@@ -38,7 +37,8 @@ const ROLE_COLOR: Record<Role, string> = {
 };
 
 export default function MyMissionsPage() {
-  const userMissions = getUserMissions(CURRENT_USER.id);
+  const { user, getUserMissions } = useStore();
+  const userMissions = getUserMissions();
 
   const byRole = {
     contributor: userMissions.filter((m) => m.role === "contributor"),
@@ -46,7 +46,7 @@ export default function MyMissionsPage() {
     reviewer: userMissions.filter((m) => m.role === "reviewer"),
   };
 
-  const totalContributions = CURRENT_USER.approved_contributions;
+  const totalContributions = user?.approved_contributions ?? 0;
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
@@ -54,12 +54,12 @@ export default function MyMissionsPage() {
       <div className="border rounded-xl bg-card overflow-hidden">
         <div className="px-5 py-5 flex items-center gap-4">
           <div className="h-12 w-12 rounded-full bg-primary/10 flex items-center justify-center text-base font-bold text-primary shrink-0">
-            {CURRENT_USER.name.split(" ").map((w) => w[0]).join("")}
+            {user?.name.split(" ").map((w) => w[0]).join("") ?? "?"}
           </div>
           <div className="min-w-0 flex-1">
-            <h1 className="text-lg font-bold tracking-tight">{CURRENT_USER.name}</h1>
+            <h1 className="text-lg font-bold tracking-tight">{user?.name ?? "Guest"}</h1>
             <p className="text-[13px] text-muted-foreground">
-              {totalContributions} approved contributions · Rank #{CURRENT_USER.rank}
+              {totalContributions} approved contributions · Rank #{user?.rank ?? "-"}
             </p>
           </div>
           <div className="flex items-center gap-3 shrink-0 text-center">

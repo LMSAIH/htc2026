@@ -18,6 +18,34 @@ class Settings(BaseSettings):
     # Database SSL
     DB_CA_CERT_PATH: str = ""  # Path to CA cert for SSL connections to managed Postgres
 
+    # Vultr GPU Cloud
+    VULTR_API_KEY: str = ""
+    VULTR_DEFAULT_REGION: str = "ewr"
+    VULTR_SSH_KEY_ID: str = ""
+
+    # Lambda Labs GPU
+    LAMBDA_API_KEY: str = ""
+    LAMBDA_DEFAULT_REGION: str = "us-south-2"
+    LAMBDA_SSH_KEY_NAME: str = "Arch Laptop"
+    LAMBDA_DEFAULT_INSTANCE_TYPE: str = "gpu_1x_h100_sxm5"
+    LAMBDA_SSH_PRIVATE_KEY_PATH: str = "/etc/secrets/lambda-ssh-key"
+
+    # Training mode: "local" (4060 Mobile), "vultr" (Cloud GPU), or "lambda" (Lambda Labs)
+    TRAINING_MODE: str = "local"
+
+    # HuggingFace Hub
+    HF_TOKEN: str = ""
+
+    # GPU Worker Callbacks
+    CALLBACK_SECRET: str = ""  # Shared secret for GPU worker → API auth
+    API_BASE_URL: str = ""  # e.g. https://api.dataforall.xyz — passed to GPU workers
+
+    # Container Registry
+    VULTR_REGISTRY_URL: str = "ewr.vultrcr.com"
+    VULTR_REGISTRY_USERNAME: str = ""
+    VULTR_REGISTRY_PASSWORD: str = ""  # API key for the registry
+    GPU_WORKER_IMAGE: str = "ewr.vultrcr.com/dataforall/gpu-worker:latest"
+
     # App
     APP_ENV: str = "development"
     APP_SECRET_KEY: str = "change-me-in-production"

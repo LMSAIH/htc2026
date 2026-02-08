@@ -7,7 +7,7 @@ export function PublicLayout() {
   return (
     <div className="flex min-h-screen flex-col">
       {/* Minimal nav */}
-      <header className="sticky top-0 z-50 w-full border-b bg-background/80 backdrop-blur-lg">
+      <header className="sticky top-0 z-50 w-full bg-background/80 backdrop-blur-lg">
         <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
           <Link
             to="/"
@@ -46,7 +46,7 @@ export function PublicLayout() {
       </main>
 
       {/* Footer */}
-      <footer className="border-t bg-muted/30">
+      <footer className="bg-muted/30">
         <div className="mx-auto max-w-6xl px-4 py-16 sm:px-6 lg:px-8">
           <div className="grid gap-10 sm:grid-cols-2 lg:grid-cols-4">
             <div className="space-y-4">

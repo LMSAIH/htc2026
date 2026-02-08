@@ -26,7 +26,7 @@ from app.schemas.training import (
     CallbackCompleteRequest,
     CallbackFailRequest,
 )
-from app.services import hf_models, vultr_gpu, training_orchestrator
+from app.services import hf_models, lambda_gpu, training_orchestrator
 
 router = APIRouter(prefix="/training", tags=["training"])
 
@@ -69,7 +69,7 @@ async def start_training(
     base_model = hf_models.resolve_base_model(payload.task, payload.base_model)
 
     # 4. Estimate cost
-    estimated_cost = vultr_gpu.estimate_cost(payload.max_epochs)
+    estimated_cost = lambda_gpu.estimate_cost(payload.max_epochs)
 
     # 5. Create the TrainingJob row
     job = TrainingJob(
@@ -179,7 +179,7 @@ async def cancel_training_job(
 
     if job.vultr_instance_id:
         try:
-            await vultr_gpu.destroy_instance(job.vultr_instance_id)
+            await lambda_gpu.destroy_instance(job.vultr_instance_id)
         except Exception:
             pass  # best-effort cleanup
 
@@ -220,8 +220,8 @@ async def list_hf_models(
     summary="Get active GPU specs, pricing, and training mode",
 )
 async def get_gpu_info():
-    info = vultr_gpu.get_gpu_info()
-    mode = vultr_gpu.get_training_mode()
+    info = lambda_gpu.get_gpu_info()
+    mode = lambda_gpu.get_training_mode()
     return GPUInfoResponse(gpu=GPUInfo(**info), mode=mode)
 
 

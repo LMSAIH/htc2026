@@ -25,9 +25,9 @@ class Settings(BaseSettings):
 
     # Lambda Labs GPU
     LAMBDA_API_KEY: str = ""
-    LAMBDA_DEFAULT_REGION: str = "us-west-1"
+    LAMBDA_DEFAULT_REGION: str = "us-south-2"
     LAMBDA_SSH_KEY_NAME: str = "Arch Laptop"
-    LAMBDA_DEFAULT_INSTANCE_TYPE: str = "gpu_1x_a10"
+    LAMBDA_DEFAULT_INSTANCE_TYPE: str = "gpu_1x_h100_sxm5"
     LAMBDA_SSH_PRIVATE_KEY_PATH: str = "/etc/secrets/lambda-ssh-key"
 
     # Training mode: "local" (4060 Mobile), "vultr" (Cloud GPU), or "lambda" (Lambda Labs)

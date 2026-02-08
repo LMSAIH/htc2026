@@ -1,5 +1,7 @@
 from contextlib import asynccontextmanager
 
+import logging
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -10,9 +12,24 @@ from app.models.base import Base
 # Import all models so Base.metadata knows about them
 from app.models import Mission, Contribution, CurationAction, AIModel, TrainingJob  # noqa: F401
 
-from app.routers import health, missions, contributions, curation, dashboard, ai, training
+from app.routers import (
+    health,
+    missions,
+    contributions,
+    curation,
+    dashboard,
+    ai,
+    training,
+)
 
 settings = get_settings()
+
+
+# Ensure app logs (logger.info/...) are visible in k8s
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(levelname)s:%(name)s:%(message)s",
+)
 
 
 @asynccontextmanager

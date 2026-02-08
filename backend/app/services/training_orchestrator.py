@@ -32,6 +32,14 @@ PROVISION_TIMEOUT_MINUTES = 15
 ORPHANED_JOB_TIMEOUT_MINUTES = 30
 
 
+async def _commit(db: AsyncSession) -> None:
+    try:
+        await db.commit()
+    except Exception:
+        await db.rollback()
+        raise
+
+
 def launch_training(job_id: uuid.UUID) -> None:
     """
     Provision a GPU instance for the training job and return immediately.
@@ -89,6 +97,19 @@ async def _provision_and_monitor(job_id: uuid.UUID) -> None:
                 logger.error("Training job %s not found in DB", job_id)
                 return
 
+            # If the job has already ended, don't provision GPUs (prevents billing leaks)
+            if job.status in (
+                TrainingJobStatus.CANCELLED,
+                TrainingJobStatus.COMPLETED,
+                TrainingJobStatus.FAILED,
+            ):
+                logger.info(
+                    "Job %s is %s; skipping provisioning",
+                    job_id,
+                    job.status.value,
+                )
+                return
+
             logger.info("Provisioning GPU for job %s", job_id)
 
             await _update_status(db, job, TrainingJobStatus.PROVISIONING)
@@ -114,7 +135,7 @@ async def _provision_and_monitor(job_id: uuid.UUID) -> None:
 
             job.vultr_instance_id = instance_id
             job.vultr_instance_ip = instance_ip
-            await db.flush()
+            await _commit(db)
 
             logger.info("GPU instance %s provisioned for job %s", instance_id, job_id)
 
@@ -125,6 +146,10 @@ async def _provision_and_monitor(job_id: uuid.UUID) -> None:
             logger.info(
                 "Job %s handed off to GPU worker. Waiting for completion...", job_id
             )
+
+            # If provisioning succeeded, leave the job in TRAINING. The worker will
+            # keep sending status callbacks and will mark completion/failure.
+            await _update_status(db, job, TrainingJobStatus.TRAINING)
 
         except Exception as exc:
             logger.error(
@@ -188,9 +213,10 @@ async def cleanup_orphaned_jobs() -> None:
                     logger.error("Failed to destroy orphaned instance: %s", exc)
             job.status = TrainingJobStatus.FAILED
             job.error_message = "Job timed out during provisioning"
-            await db.flush()
 
         if orphaned:
+            await _commit(db)
+
             logger.info("Cleaned up %d orphaned jobs", len(orphaned))
 
 
@@ -205,6 +231,7 @@ async def _update_status(
     job.status = status
     job.updated_at = datetime.utcnow()
     await db.flush()
+    await _commit(db)
     logger.info("Job %s → %s", job.id, status.value)
 
 

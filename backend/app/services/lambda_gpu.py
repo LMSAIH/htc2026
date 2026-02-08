@@ -28,14 +28,14 @@ settings = get_settings()
 LAMBDA_BASE = "https://cloud.lambdalabs.com/api/v1"
 
 LAMBDA_GPU_INFO = {
-    "name": "NVIDIA A10 (Lambda Labs)",
-    "plan": "gpu_1x_a10",
-    "hourly_rate_usd": 0.75,
-    "gpu_memory_gb": 24,
+    "name": "NVIDIA H100 SXM5 (Lambda Labs)",
+    "plan": "gpu_1x_h100_sxm5",
+    "hourly_rate_usd": 3.29,
+    "gpu_memory_gb": 80,
     "cpu_memory_gb": 0,
     "description": (
-        "NVIDIA A10 — 24 GB VRAM, Lambda Labs cloud. $0.75/hr. "
-        "Good for LoRA fine-tuning of models up to 7B parameters."
+        "NVIDIA H100 SXM5 — 80 GB HBM3 VRAM, Lambda Labs cloud. $3.29/hr. "
+        "Top-tier training GPU for fine-tuning models up to 70B parameters."
     ),
 }
 
@@ -158,10 +158,12 @@ def _ssh_execute(ip: str, script: str, timeout: int = 120) -> str:
         )
 
         logger.info("SSH connected, executing startup script...")
-        stdin, stdout, stderr = client.exec_command(
-            f"bash -c '{script}'",
-            timeout=timeout,
-        )
+        # Run as root to avoid docker socket permission issues on fresh instances.
+        # Lambda's Ubuntu images typically grant passwordless sudo to the ubuntu user.
+        stdin, stdout, stderr = client.exec_command("sudo -n bash -s", timeout=timeout)
+        stdin.write(script)
+        stdin.flush()
+        stdin.channel.shutdown_write()
         output = stdout.read().decode("utf-8", errors="replace")
         errors = stderr.read().decode("utf-8", errors="replace")
 
@@ -200,26 +202,59 @@ async def create_gpu_instance(
 
     Returns dict matching Vultr format: {"instance": {"id": ..., "main_ip": ...}}
     """
-    # 1. Launch instance via Lambda API
-    payload = {
-        "region_name": region or settings.LAMBDA_DEFAULT_REGION,
-        "instance_type_name": settings.LAMBDA_DEFAULT_INSTANCE_TYPE,
-        "ssh_key_names": [settings.LAMBDA_SSH_KEY_NAME],
-        "file_system_names": [],
-        "quantity": 1,
-        "name": label,
-    }
+    # 1. Launch instance via Lambda API — try preferred region first,
+    #    then fall back to other regions with available capacity.
+    instance_type = settings.LAMBDA_DEFAULT_INSTANCE_TYPE
+    preferred_region = region or settings.LAMBDA_DEFAULT_REGION
+    fallback_regions = ["us-south-2", "us-south-3", "us-west-1", "us-east-1"]
+
+    # Build ordered region list: preferred first, then fallbacks (deduplicated)
+    regions_to_try = [preferred_region] + [
+        r for r in fallback_regions if r != preferred_region
+    ]
+
+    launch_data = None
+    last_error = None
 
     async with httpx.AsyncClient(timeout=60) as client:
-        resp = await client.post(
-            f"{LAMBDA_BASE}/instance-operations/launch",
-            headers=_headers(),
-            json=payload,
+        for try_region in regions_to_try:
+            payload = {
+                "region_name": try_region,
+                "instance_type_name": instance_type,
+                "ssh_key_names": [settings.LAMBDA_SSH_KEY_NAME],
+                "file_system_names": [],
+                "quantity": 1,
+                "name": label,
+            }
+            logger.info("Attempting Lambda launch: %s in %s", instance_type, try_region)
+            resp = await client.post(
+                f"{LAMBDA_BASE}/instance-operations/launch",
+                headers=_headers(),
+                json=payload,
+            )
+            if resp.status_code >= 400:
+                error_body = resp.text
+                logger.warning(
+                    "Lambda launch failed in %s (%d): %s",
+                    try_region,
+                    resp.status_code,
+                    error_body,
+                )
+                last_error = error_body
+                # Capacity error — try next region
+                if "insufficient-capacity" in error_body.lower():
+                    continue
+                # Non-capacity error — raise immediately
+                resp.raise_for_status()
+            else:
+                launch_data = resp.json()
+                logger.info("Lambda launch succeeded in region %s", try_region)
+                break
+
+    if launch_data is None:
+        raise RuntimeError(
+            f"Lambda launch failed in all regions {regions_to_try}: {last_error}"
         )
-        if resp.status_code >= 400:
-            logger.error("Lambda API error %d: %s", resp.status_code, resp.text)
-        resp.raise_for_status()
-        launch_data = resp.json()
 
     instance_ids = launch_data.get("data", {}).get("instance_ids", [])
     if not instance_ids:
@@ -354,7 +389,7 @@ def estimate_cost(max_epochs: int, approx_hours: float = 1.0) -> float:
 
 
 def get_gpu_info() -> dict[str, Any]:
-    """Return info about the active GPU (local 4060 or Lambda A10)."""
+    """Return info about the active GPU (local 4060 or Lambda H100)."""
     if is_local_mode():
         return dict(LOCAL_4060_INFO)
     return dict(LAMBDA_GPU_INFO)

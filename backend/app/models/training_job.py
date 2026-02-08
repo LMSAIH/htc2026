@@ -1,5 +1,6 @@
 import uuid
 import enum
+from datetime import datetime
 from sqlalchemy import String, Text, Float, Integer, Boolean, ForeignKey, Enum as SAEnum
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -67,6 +68,15 @@ class TrainingJob(Base, UUIDMixin, TimestampMixin):
     epochs_completed: Mapped[int] = mapped_column(Integer, default=0)
     result_accuracy: Mapped[float | None] = mapped_column(Float, nullable=True)
     result_loss: Mapped[float | None] = mapped_column(Float, nullable=True)
+
+    # Real-time progress fields
+    current_epoch: Mapped[int] = mapped_column(Integer, default=0)
+    current_batch: Mapped[int] = mapped_column(Integer, default=0)
+    total_batches: Mapped[int] = mapped_column(Integer, default=0)
+    current_loss: Mapped[float | None] = mapped_column(Float, nullable=True)
+    current_accuracy: Mapped[float | None] = mapped_column(Float, nullable=True)
+    eta_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    last_progress_at: Mapped[datetime | None] = mapped_column(nullable=True)
 
     # Cost tracking
     estimated_cost_usd: Mapped[float | None] = mapped_column(Float, nullable=True)

@@ -71,6 +71,8 @@ def _build_startup_commands(
     target_accuracy: float | None,
     api_callback_url: str,
     callback_secret: str,
+    training_mode: str = "simulated",
+    mission_id: str = "",
 ) -> str:
     """
     Build a shell script string to run on the Lambda instance via SSH.
@@ -106,21 +108,27 @@ echo "{registry_pass}" | docker login {registry_url} -u {registry_user} --passwo
 echo "Pulling gpu-worker image..."
 docker pull {image}
 
-# Run the training container with all config as environment variables
-echo "Starting training container..."
-nohup docker run --rm --gpus all \
-    -e JOB_ID={job_id} \
-    -e API_CALLBACK_URL={api_callback_url} \
-    -e CALLBACK_SECRET={callback_secret} \
-    -e BASE_MODEL={base_model} \
-    -e TASK={task} \
-    -e MAX_EPOCHS={max_epochs} \
-    -e BATCH_SIZE={batch_size} \
-    -e LEARNING_RATE={learning_rate} \
-    -e USE_LORA={"true" if use_lora else "false"} \
-    -e TARGET_ACCURACY={target_acc_str} \
-    -e TRAINING_MODE=simulated \
-    {image} > /tmp/gpu-worker.log 2>&1 &
+    # Run the training container with all config as environment variables
+    echo "Starting training container..."
+    nohup docker run --rm --gpus all \
+        -e JOB_ID={job_id} \
+        -e API_BASE_URL={api_callback_url} \
+        -e CALLBACK_SECRET={callback_secret} \
+        -e BASE_MODEL={base_model} \
+        -e TASK={task} \
+        -e MAX_EPOCHS={max_epochs} \
+        -e BATCH_SIZE={batch_size} \
+        -e LEARNING_RATE={learning_rate} \
+        -e USE_LORA={"true" if use_lora else "false"} \
+        -e TARGET_ACCURACY={target_acc_str} \
+        -e TRAINING_MODE={training_mode} \
+        -e S3_ENDPOINT_URL={settings.S3_ENDPOINT_URL} \
+        -e S3_ACCESS_KEY={settings.S3_ACCESS_KEY} \
+        -e S3_SECRET_KEY={settings.S3_SECRET_KEY} \
+        -e S3_BUCKET_NAME={settings.S3_BUCKET_NAME} \
+        -e MISSION_ID={mission_id} \
+        -e HF_TOKEN={settings.HF_TOKEN} \
+        {image} > /tmp/gpu-worker.log 2>&1 &
 
 echo "===== GPU Worker launched in background ====="
 '''
@@ -194,6 +202,8 @@ async def create_gpu_instance(
     target_accuracy: float | None = None,
     api_callback_url: str | None = None,
     callback_secret: str | None = None,
+    training_mode: str = "simulated",
+    mission_id: str = "",
 ) -> dict[str, Any]:
     """
     Provision a GPU instance on Lambda Labs.
@@ -282,6 +292,8 @@ async def create_gpu_instance(
             target_accuracy=target_accuracy,
             api_callback_url=api_callback_url,
             callback_secret=callback_secret,
+            training_mode=training_mode,
+            mission_id=mission_id,
         )
 
         # SSH can block — run in a thread

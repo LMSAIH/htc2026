@@ -99,12 +99,16 @@ class GPUInfoResponse(BaseModel):
 
 
 class CallbackStatusRequest(BaseModel):
-    """Sent by GPU worker after each epoch."""
+    """Sent by GPU worker after each epoch or batch."""
 
     status: str
     epochs_completed: int = Field(ge=0)
+    current_epoch: int | None = Field(default=0, ge=0)
+    current_batch: int | None = Field(default=None, ge=0)
+    total_batches: int | None = Field(default=None, ge=0)
     current_loss: float | None = None
     current_accuracy: float | None = None
+    eta_seconds: int | None = Field(default=None, ge=0)
 
 
 class CallbackCompleteRequest(BaseModel):
@@ -119,3 +123,67 @@ class CallbackFailRequest(BaseModel):
     """Sent by GPU worker when training fails."""
 
     error_message: str = Field(max_length=4096)
+
+
+class TrainingProgressResponse(BaseModel):
+    """Real-time training progress for a job."""
+
+    id: uuid.UUID
+    mission_id: uuid.UUID
+    status: TrainingJobStatus
+    current_epoch: int
+    total_epochs: int
+    current_batch: int
+    total_batches: int
+    epochs_completed: int
+    current_loss: float | None
+    current_accuracy: float | None
+    eta_seconds: int | None
+    updated_at: datetime | None
+
+    model_config = {"from_attributes": True}
+
+
+# ── Heartbeat & Worker Status schemas ─────────────────────────────────────────
+
+
+class HeartbeatRequest(BaseModel):
+    """Sent by worker every 30 seconds to indicate it's still alive."""
+
+    worker_status: str = Field(..., description="running, retrying, failed")
+    gpu_temp_c: float | None = Field(None, ge=0, le=150)
+    gpu_memory_used_gb: float | None = Field(None, ge=0)
+    current_epoch: int | None = Field(None, ge=0)
+    current_batch: int | None = Field(None, ge=0)
+
+
+class LogMessage(BaseModel):
+    """Structured log message from worker."""
+
+    level: str = Field(..., description="DEBUG, INFO, WARNING, ERROR")
+    message: str = Field(...)
+    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    epoch: int | None = Field(None, ge=0)
+    batch: int | None = Field(None, ge=0)
+
+
+class LogEntry(BaseModel):
+    """Log entry stored in database."""
+
+    id: uuid.UUID
+    job_id: uuid.UUID
+    level: str
+    message: str
+    timestamp: datetime
+    epoch: int | None
+    batch: int | None
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class LogEntryListResponse(BaseModel):
+    """Paginated list of log entries for a job."""
+
+    logs: list[LogEntry]
+    total: int

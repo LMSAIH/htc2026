@@ -33,6 +33,10 @@ class Settings(BaseSettings):
     # Training mode: "local" (4060 Mobile), "vultr" (Cloud GPU), or "lambda" (Lambda Labs)
     TRAINING_MODE: str = "local"
 
+    # Worker training mode: "simulated" (fake metrics) or "real" (actual HF training)
+    # This is passed to the gpu-worker container as its TRAINING_MODE env var.
+    WORKER_TRAINING_MODE: str = "simulated"
+
     # HuggingFace Hub
     HF_TOKEN: str = ""
 
@@ -44,7 +48,7 @@ class Settings(BaseSettings):
     VULTR_REGISTRY_URL: str = "ewr.vultrcr.com"
     VULTR_REGISTRY_USERNAME: str = ""
     VULTR_REGISTRY_PASSWORD: str = ""  # API key for the registry
-    GPU_WORKER_IMAGE: str = "ewr.vultrcr.com/dataforall/gpu-worker:latest"
+    GPU_WORKER_IMAGE: str = "ewr.vultrcr.com/dataforall/gpu-worker:v2"
 
     # App
     APP_ENV: str = "development"

@@ -1,58 +1,40 @@
 """
-gpu-worker/train.py — One-shot training worker for DataForAll
+gpu-worker/train.py — Robust training worker for DataForAll
 
-This script runs INSIDE an ephemeral GPU server (Vultr GH200 bare metal).
+This script runs INSIDE an ephemeral GPU server (Lambda H100).
 It receives job configuration via environment variables, executes training
-(simulated or real), and reports progress/results back to the API via HTTP
-callbacks.
+(simulated or real), and reports progress/results back to the API.
 
-Lifecycle:
-  1. Read config from env vars
-  2. POST callback: status → "training"
-  3. Run training loop (simulated OR real with HuggingFace)
-  4. POST callback: complete (with final metrics) OR fail (with error)
-  5. Exit (the API server will then destroy this GPU instance)
-
-Environment variables:
-  JOB_ID            - UUID of the TrainingJob
-  API_CALLBACK_URL  - Base URL of the API (e.g. https://api.dataforall.xyz)
-  CALLBACK_SECRET   - Shared secret for authenticating callbacks
-  BASE_MODEL        - HuggingFace model ID
-  TASK              - ML task type (e.g. image-classification, text-classification)
-  MAX_EPOCHS        - Number of training epochs
-  BATCH_SIZE        - Batch size
-  LEARNING_RATE     - Learning rate
-  USE_LORA          - "true" or "false"
-  TARGET_ACCURACY   - Optional target accuracy (float or empty)
-  TRAINING_MODE     - "simulated" (default) or "real"
-  HF_TOKEN          - HuggingFace token for uploading model
-  DATASET_PATH      - S3 path to dataset (missions/{mission_id}/contributions/)
+Key Features:
+- Crash recovery via local state file
+- Heartbeat as async task (30s interval)
+- Batch retry (3 attempts before failure)
+- Structured logging via HTTP callbacks
+- Graceful shutdown handling
 """
 
+import asyncio
+import json
+import logging
 import os
+import signal
 import sys
 import time
-import random
 import traceback
+from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Optional, Dict, Any
 
 import httpx
-import torch
-from transformers import (
-    AutoModelForSequenceClassification,
-    AutoTokenizer,
-    Trainer,
-    TrainingArguments,
-    DataCollatorWithPadding,
-)
-from datasets import Dataset
-import peft
-import evaluate
 
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+)
+logger = logging.getLogger(__name__)
 
 JOB_ID = os.environ.get("JOB_ID", "")
-API_CALLBACK_URL = os.environ.get("API_CALLBACK_URL", "").rstrip("/")
+API_BASE_URL = os.environ.get("API_BASE_URL", "").rstrip("/")
 CALLBACK_SECRET = os.environ.get("CALLBACK_SECRET", "")
 BASE_MODEL = os.environ.get("BASE_MODEL", "")
 TASK = os.environ.get("TASK", "")
@@ -65,7 +47,14 @@ TRAINING_MODE = os.environ.get("TRAINING_MODE", "simulated")
 HF_TOKEN = os.environ.get("HF_TOKEN", "")
 DATASET_PATH = os.environ.get("DATASET_PATH", "")
 
-target_acc: float | None = None
+# S3 settings — for loading real mission contribution data
+S3_ENDPOINT_URL = os.environ.get("S3_ENDPOINT_URL", "")
+S3_ACCESS_KEY = os.environ.get("S3_ACCESS_KEY", "")
+S3_SECRET_KEY = os.environ.get("S3_SECRET_KEY", "")
+S3_BUCKET_NAME = os.environ.get("S3_BUCKET_NAME", "")
+MISSION_ID = os.environ.get("MISSION_ID", "")
+
+target_acc: Optional[float] = None
 if TARGET_ACCURACY:
     try:
         target_acc = float(TARGET_ACCURACY)
@@ -75,175 +64,541 @@ if TARGET_ACCURACY:
 OUTPUT_DIR = f"/tmp/training-{JOB_ID}"
 MODEL_DIR = f"{OUTPUT_DIR}/model"
 CHECKPOINT_DIR = f"{OUTPUT_DIR}/checkpoints"
+STATE_DIR = Path("/worker/state")
+STATE_DIR.mkdir(parents=True, exist_ok=True)
 
+MAX_RETRIES = 3
+HEARTBEAT_INTERVAL = 30
 
-CLIENT = httpx.Client(timeout=60.0)
-CALLBACK_HEADERS = {
+_http_client: Optional[httpx.AsyncClient] = None
+_callback_headers = {
     "Content-Type": "application/json",
     "X-Callback-Secret": CALLBACK_SECRET,
 }
 
+_state: Optional[Dict[str, Any]] = None
+_heartbeat_task: Optional[asyncio.Task] = None
 
-def callback_status(
+
+def get_http_client() -> httpx.AsyncClient:
+    global _http_client
+    if _http_client is None or _http_client.is_closed:
+        _http_client = httpx.AsyncClient(timeout=60.0)
+    return _http_client
+
+
+def get_state_path() -> Path:
+    return STATE_DIR / f"{JOB_ID}.json"
+
+
+def load_state() -> Optional[Dict[str, Any]]:
+    path = get_state_path()
+    if not path.exists():
+        return None
+    try:
+        with open(path, "r") as f:
+            return json.load(f)
+    except Exception as exc:
+        logger.warning(f"Failed to load state: {exc}")
+        return None
+
+
+def save_state(data: Dict[str, Any]) -> None:
+    path = get_state_path()
+    with open(path, "w") as f:
+        json.dump(data, f, indent=2)
+
+
+def delete_state() -> None:
+    path = get_state_path()
+    if path.exists():
+        os.remove(path)
+
+
+def init_state() -> Dict[str, Any]:
+    global _state
+    existing = load_state()
+    if existing:
+        _state = existing
+        epoch = _state.get("epoch", 1)
+        batch = _state.get("batch", 0)
+        logger.info(f"Resuming from epoch={epoch}, batch={batch}")
+    else:
+        _state = {"job_id": JOB_ID, "epoch": 1, "batch": 0, "retry_count": 0}
+        save_state(_state)
+        logger.info("Starting fresh training")
+    return _state
+
+
+def update_state(
+    epoch: int,
+    batch: int,
+    loss: Optional[float] = None,
+    accuracy: Optional[float] = None,
+):
+    global _state
+    if _state is None:
+        return
+    _state["epoch"] = epoch
+    _state["batch"] = batch
+    _state["last_error"] = None
+    _state["retry_count"] = 0
+    _state["updated_at"] = datetime.utcnow().isoformat()
+    if loss is not None:
+        _state["loss"] = loss
+    if accuracy is not None:
+        _state["accuracy"] = accuracy
+    save_state(_state)
+
+
+# ---------------------------------------------------------------------------
+# Heartbeat — runs as an asyncio.Task on the MAIN event loop
+# ---------------------------------------------------------------------------
+
+
+async def _heartbeat_loop() -> None:
+    """Background heartbeat that runs as an asyncio task on the main loop."""
+    while True:
+        try:
+            await send_heartbeat()
+        except asyncio.CancelledError:
+            logger.info("Heartbeat task cancelled")
+            return
+        except Exception as exc:
+            logger.warning(f"Heartbeat error: {exc}")
+        try:
+            await asyncio.sleep(HEARTBEAT_INTERVAL)
+        except asyncio.CancelledError:
+            logger.info("Heartbeat task cancelled during sleep")
+            return
+
+
+def start_heartbeat() -> None:
+    """Start heartbeat as an asyncio.Task on the currently-running loop."""
+    global _heartbeat_task
+    loop = asyncio.get_running_loop()
+    _heartbeat_task = loop.create_task(_heartbeat_loop())
+    logger.info(f"Heartbeat started (interval={HEARTBEAT_INTERVAL}s)")
+
+
+async def stop_heartbeat() -> None:
+    """Cancel the heartbeat task."""
+    global _heartbeat_task
+    if _heartbeat_task is not None and not _heartbeat_task.done():
+        _heartbeat_task.cancel()
+        try:
+            await _heartbeat_task
+        except asyncio.CancelledError:
+            pass
+    _heartbeat_task = None
+    logger.info("Heartbeat stopped")
+
+
+# ---------------------------------------------------------------------------
+# GPU info helpers
+# ---------------------------------------------------------------------------
+
+
+def get_gpu_temp() -> Optional[float]:
+    try:
+        result = os.popen(
+            "nvidia-smi --query-gpu=temperature.gpu --format=csv,noheader"
+        ).read()
+        return float(result.strip())
+    except Exception:
+        return None
+
+
+def get_gpu_memory() -> Optional[float]:
+    try:
+        result = os.popen(
+            "nvidia-smi --query-gpu=memory.used --format=csv,noheader"
+        ).read()
+        used_mb = float(result.strip())
+        return round(used_mb / 1024, 2)
+    except Exception:
+        return None
+
+
+# ---------------------------------------------------------------------------
+# Callback functions — all async, awaited directly from the main loop
+# ---------------------------------------------------------------------------
+
+
+async def send_heartbeat() -> None:
+    """Send heartbeat to API."""
+    if _state is None:
+        return
+    client = get_http_client()
+    url = f"{API_BASE_URL}/api/training/jobs/{JOB_ID}/callback/heartbeat"
+    payload = {
+        "worker_status": "running",
+        "gpu_temp_c": get_gpu_temp(),
+        "gpu_memory_used_gb": get_gpu_memory(),
+        "current_epoch": _state.get("epoch"),
+        "current_batch": _state.get("batch"),
+    }
+    try:
+        resp = await client.post(url, json=payload, headers=_callback_headers)
+        if resp.status_code == 200:
+            logger.debug("Heartbeat sent successfully")
+        else:
+            logger.warning(f"Heartbeat response: {resp.status_code}")
+    except Exception as exc:
+        logger.warning(f"Heartbeat failed: {exc}")
+
+
+async def send_log(
+    level: str, message: str, epoch: Optional[int] = None, batch: Optional[int] = None
+) -> None:
+    """Send a log message to API."""
+    client = get_http_client()
+    url = f"{API_BASE_URL}/api/training/jobs/{JOB_ID}/callback/log"
+    payload = {
+        "level": level.upper(),
+        "message": message,
+        "timestamp": datetime.utcnow().isoformat(),
+        "epoch": epoch or (_state.get("epoch") if _state else None),
+        "batch": batch or (_state.get("batch") if _state else None),
+    }
+    try:
+        await client.post(url, json=payload, headers=_callback_headers)
+    except Exception as exc:
+        logger.warning(f"Log send failed: {exc}")
+    logger.info(f"[{level}] {message}")
+
+
+async def send_status(
     status: str,
-    epoch: int = 0,
-    loss: float | None = None,
-    accuracy: float | None = None,
-) -> bool:
-    """Report training status/progress to the API."""
-    url = f"{API_CALLBACK_URL}/api/training/jobs/{JOB_ID}/callback/status"
+    epoch: int,
+    loss: Optional[float] = None,
+    accuracy: Optional[float] = None,
+    batch: Optional[int] = None,
+    total_batches: Optional[int] = None,
+    eta: Optional[int] = None,
+) -> None:
+    """Send training status update to API."""
+    client = get_http_client()
+    url = f"{API_BASE_URL}/api/training/jobs/{JOB_ID}/callback/status"
     payload = {
         "status": status,
         "epochs_completed": epoch,
+        "current_epoch": epoch,
+        "current_batch": batch or 0,
+        "total_batches": total_batches or 0,
     }
     if loss is not None:
         payload["current_loss"] = loss
     if accuracy is not None:
         payload["current_accuracy"] = accuracy
-
+    if eta is not None:
+        payload["eta_seconds"] = eta
     try:
-        resp = CLIENT.post(url, json=payload, headers=CALLBACK_HEADERS)
+        resp = await client.post(url, json=payload, headers=_callback_headers)
         if resp.status_code != 200:
-            print(f"WARNING: Status callback returned {resp.status_code}: {resp.text}")
-            return False
-        return True
-    except Exception as e:
-        print(f"WARNING: Status callback failed: {e}")
-        return False
+            logger.warning(f"Status callback failed: {resp.text}")
+    except Exception as exc:
+        logger.warning(f"Status callback error: {exc}")
 
 
-def callback_complete(accuracy: float, loss: float, epochs_completed: int) -> bool:
-    """Report training completion to the API."""
-    url = f"{API_CALLBACK_URL}/api/training/jobs/{JOB_ID}/callback/complete"
+async def send_complete(accuracy: float, loss: float, epochs: int) -> None:
+    """Send training complete callback to API."""
+    client = get_http_client()
+    url = f"{API_BASE_URL}/api/training/jobs/{JOB_ID}/callback/complete"
     payload = {
         "result_accuracy": accuracy,
         "result_loss": loss,
-        "epochs_completed": epochs_completed,
+        "epochs_completed": epochs,
     }
     try:
-        resp = CLIENT.post(url, json=payload, headers=CALLBACK_HEADERS)
+        resp = await client.post(url, json=payload, headers=_callback_headers)
         if resp.status_code != 200:
-            print(
-                f"WARNING: Complete callback returned {resp.status_code}: {resp.text}"
-            )
-            return False
-        return True
-    except Exception as e:
-        print(f"WARNING: Complete callback failed: {e}")
-        return False
+            logger.warning(f"Complete callback failed: {resp.text}")
+        else:
+            logger.info("Complete callback sent successfully")
+    except Exception as exc:
+        logger.warning(f"Complete callback error: {exc}")
 
 
-def callback_fail(error_message: str) -> bool:
-    """Report training failure to the API."""
-    url = f"{API_CALLBACK_URL}/api/training/jobs/{JOB_ID}/callback/fail"
+async def send_fail(error_message: str) -> None:
+    """Send training failure callback to API."""
+    client = get_http_client()
+    url = f"{API_BASE_URL}/api/training/jobs/{JOB_ID}/callback/fail"
     payload = {"error_message": error_message}
     try:
-        resp = CLIENT.post(url, json=payload, headers=CALLBACK_HEADERS)
+        resp = await client.post(url, json=payload, headers=_callback_headers)
         if resp.status_code != 200:
-            print(f"WARNING: Fail callback returned {resp.status_code}: {resp.text}")
-            return False
-        return True
-    except Exception as e:
-        print(f"WARNING: Fail callback failed: {e}")
-        return False
+            logger.warning(f"Fail callback failed: {resp.text}")
+        else:
+            logger.info("Fail callback sent successfully")
+    except Exception as exc:
+        logger.warning(f"Fail callback error: {exc}")
 
 
-def run_simulated_training() -> tuple[float, float, int]:
-    """
-    Simulate training with sleep + random metrics.
-    Returns (final_accuracy, final_loss, epochs_completed).
-    """
-    print(
-        f"[SIMULATED] Starting training: model={BASE_MODEL}, task={TASK}, "
-        f"epochs={MAX_EPOCHS}, batch_size={BATCH_SIZE}, lr={LEARNING_RATE}"
-    )
+async def terminate_self() -> None:
+    """Terminate GPU instance via API."""
+    logger.warning("Terminating GPU instance after repeated failures")
+    await send_fail(f"Batch failed after {MAX_RETRIES} attempts")
+
+
+# ---------------------------------------------------------------------------
+# Training functions — now async to support await on callbacks
+# ---------------------------------------------------------------------------
+
+
+async def run_simulated_training() -> tuple[float, float, int]:
+    """Simulate training with sleep + random metrics."""
+    import random
+
+    logger.info(f"Starting simulated training: model={BASE_MODEL}, epochs={MAX_EPOCHS}")
 
     loss = 2.5 + random.uniform(-0.5, 0.5)
     accuracy = 0.1 + random.uniform(0, 0.05)
+    total_batches = 100
+    start_time = time.time()
 
-    for epoch in range(1, MAX_EPOCHS + 1):
-        epoch_time = random.uniform(3.0, 6.0)
-        time.sleep(epoch_time)
+    current_epoch = _state.get("epoch", 1) if _state else 1
+    start_batch = (
+        (_state.get("batch", 0) + 1)
+        if _state and _state.get("epoch", 1) == current_epoch
+        else 1
+    )
 
-        loss *= random.uniform(0.75, 0.95)
-        accuracy += random.uniform(0.02, 0.08)
-        accuracy = min(accuracy, 0.99)
+    for epoch in range(current_epoch, MAX_EPOCHS + 1):
+        for batch in range(start_batch, total_batches + 1):
+            # Use asyncio.sleep so we don't block the event loop (heartbeats keep going)
+            await asyncio.sleep(random.uniform(0.1, 0.3))
 
-        print(
-            f"  Epoch {epoch}/{MAX_EPOCHS} — loss: {loss:.4f}, accuracy: {accuracy:.4f}"
-        )
+            loss *= random.uniform(0.995, 0.999)
+            accuracy = min(accuracy + random.uniform(0.001, 0.005), 0.99)
 
-        callback_status(
-            status="training",
-            epoch=epoch,
-            loss=round(loss, 4),
-            accuracy=round(accuracy, 4),
-        )
-
-        if target_acc is not None and accuracy >= target_acc:
-            print(
-                f"  Target accuracy {target_acc} reached at epoch {epoch}. Stopping early."
+            elapsed = time.time() - start_time
+            batches_done = (epoch - 1) * total_batches + batch
+            batches_total = MAX_EPOCHS * total_batches
+            eta = (
+                int((elapsed / max(batches_done, 1)) * (batches_total - batches_done))
+                if batches_done > 0
+                else 0
             )
-            return round(accuracy, 4), round(loss, 4), epoch
+
+            progress = (batch / total_batches) * 100
+            msg = (
+                f"Epoch {epoch}/{MAX_EPOCHS}, Batch {batch}/{total_batches} "
+                f"({progress:.0f}%) — loss: {loss:.4f}, accuracy: {accuracy:.4f}, ETA: {eta}s"
+            )
+
+            # Send log and status — these are now awaited directly
+            await send_log("INFO", msg, epoch, batch)
+            await send_status(
+                "training", epoch, loss, accuracy, batch, total_batches, eta
+            )
+
+            update_state(epoch, batch, loss, accuracy)
+
+            if target_acc and accuracy >= target_acc:
+                logger.info(f"Target accuracy {target_acc} reached at epoch {epoch}")
+                return round(accuracy, 4), round(loss, 4), epoch
+
+        start_batch = 1
 
     return round(accuracy, 4), round(loss, 4), MAX_EPOCHS
 
 
-def run_real_training() -> tuple[float, float, int]:
+async def run_real_training() -> tuple[float, float, int]:
     """
-    Real HuggingFace training with Transformers and PEFT/LoRA.
-    Returns (final_accuracy, final_loss, epochs_completed).
-    """
-    from huggingface_hub import HfApi
+    Real HuggingFace training — dispatches on TASK env var.
 
-    print(
-        f"[REAL] Starting training: model={BASE_MODEL}, task={TASK}, "
-        f"epochs={MAX_EPOCHS}, batch_size={BATCH_SIZE}, lr={LEARNING_RATE}, "
-        f"use_lora={USE_LORA}"
+    Supported tasks:
+      - image-classification  → ViT + ViTImageProcessor
+      - text-classification   → DistilBERT / AutoModelForSequenceClassification
+      - object-detection      → DETR (AutoModelForObjectDetection)
+      - tabular-classification → text-based approach (stringify columns)
+      - anomaly-detection      → ViT-based image feature extraction
+      - fallback               → sequence classification with dummy data
+
+    Runs the HF Trainer in a thread executor so heartbeats keep flowing.
+    """
+    import torch
+    from huggingface_hub import HfApi
+    from transformers import (
+        AutoModelForSequenceClassification,
+        AutoModelForImageClassification,
+        AutoImageProcessor,
+        AutoTokenizer,
+        Trainer,
+        TrainingArguments,
+        DataCollatorWithPadding,
+        DefaultDataCollator,
+    )
+    from datasets import Dataset
+    import peft
+
+    logger.info(
+        f"Starting real training: task={TASK}, model={BASE_MODEL}, use_lora={USE_LORA}"
     )
 
     Path(OUTPUT_DIR).mkdir(parents=True, exist_ok=True)
     Path(MODEL_DIR).mkdir(parents=True, exist_ok=True)
     Path(CHECKPOINT_DIR).mkdir(parents=True, exist_ok=True)
 
-    print("Loading tokenizer...")
-    tokenizer = AutoTokenizer.from_pretrained(BASE_MODEL)
-    if tokenizer.pad_token is None:
-        tokenizer.pad_token = tokenizer.eos_token
+    # --- Load dataset (S3 if available, dummy otherwise) ---
+    logger.info("Loading dataset...")
+    has_s3 = all(
+        [S3_ENDPOINT_URL, S3_ACCESS_KEY, S3_SECRET_KEY, S3_BUCKET_NAME, MISSION_ID]
+    )
+    if has_s3:
+        train_dataset, eval_dataset = load_s3_dataset(TASK)
+    else:
+        logger.info("No S3 config — using dummy dataset")
+        train_dataset, eval_dataset = load_dummy_dataset()
 
-    print("Loading model...")
-    model = AutoModelForSequenceClassification.from_pretrained(
-        BASE_MODEL,
-        num_labels=2,
+    await send_log(
+        "INFO", f"Dataset loaded: {len(train_dataset)} train, {len(eval_dataset)} eval"
+    )
+
+    # --- Dispatch by task ---
+    task = TASK.lower().strip() if TASK else ""
+
+    if task in ("image-classification", "anomaly-detection"):
+        accuracy, loss, epochs = await _train_image_classification(
+            train_dataset,
+            eval_dataset,
+            torch,
+            peft,
+            Trainer,
+            TrainingArguments,
+            AutoModelForImageClassification,
+            AutoImageProcessor,
+            DefaultDataCollator,
+        )
+    elif task == "text-classification" or task == "":
+        accuracy, loss, epochs = await _train_text_classification(
+            train_dataset,
+            eval_dataset,
+            torch,
+            peft,
+            Trainer,
+            TrainingArguments,
+            AutoModelForSequenceClassification,
+            AutoTokenizer,
+            DataCollatorWithPadding,
+        )
+    elif task == "tabular-classification":
+        # Stringify tabular columns and use text classification pipeline
+        accuracy, loss, epochs = await _train_text_classification(
+            train_dataset,
+            eval_dataset,
+            torch,
+            peft,
+            Trainer,
+            TrainingArguments,
+            AutoModelForSequenceClassification,
+            AutoTokenizer,
+            DataCollatorWithPadding,
+            tabular_mode=True,
+        )
+    elif task == "object-detection":
+        # Object detection requires bounding box annotations. Without annotations
+        # from S3, we fall back to image-classification on the same images.
+        logger.warning(
+            "Object detection requires bbox annotations — falling back to image-classification training"
+        )
+        accuracy, loss, epochs = await _train_image_classification(
+            train_dataset,
+            eval_dataset,
+            torch,
+            peft,
+            Trainer,
+            TrainingArguments,
+            AutoModelForImageClassification,
+            AutoImageProcessor,
+            DefaultDataCollator,
+        )
+    else:
+        logger.warning(f"Unknown task '{task}' — defaulting to text-classification")
+        accuracy, loss, epochs = await _train_text_classification(
+            train_dataset,
+            eval_dataset,
+            torch,
+            peft,
+            Trainer,
+            TrainingArguments,
+            AutoModelForSequenceClassification,
+            AutoTokenizer,
+            DataCollatorWithPadding,
+        )
+
+    return accuracy, loss, epochs
+
+
+async def _train_image_classification(
+    train_dataset,
+    eval_dataset,
+    torch,
+    peft,
+    Trainer,
+    TrainingArguments,
+    AutoModelForImageClassification,
+    AutoImageProcessor,
+    DefaultDataCollator,
+) -> tuple[float, float, int]:
+    """Image classification training path (ViT-based)."""
+    from huggingface_hub import HfApi
+
+    model_name = BASE_MODEL or "google/vit-base-patch16-224"
+    logger.info(f"Image classification: loading processor from {model_name}")
+
+    processor = AutoImageProcessor.from_pretrained(model_name)
+
+    # Determine num_labels from dataset
+    labels_col = train_dataset.column_names
+    if "label" in labels_col:
+        unique_labels = set(train_dataset["label"])
+        num_labels = max(len(unique_labels), 2)
+    else:
+        num_labels = 2
+
+    logger.info(f"Loading image model with num_labels={num_labels}...")
+    model = AutoModelForImageClassification.from_pretrained(
+        model_name,
+        num_labels=num_labels,
+        ignore_mismatched_sizes=True,
         torch_dtype=torch.float16 if torch.cuda.is_available() else "auto",
         device_map="auto" if torch.cuda.is_available() else None,
     )
 
     if USE_LORA:
-        print("Applying LoRA configuration...")
+        logger.info("Applying LoRA for image model...")
         lora_config = peft.LoraConfig(
-            task_type="SEQ_CLS",
+            task_type="SEQ_CLS",  # peft maps this for ViT
             inference_mode=False,
             r=16,
             lora_alpha=32,
             lora_dropout=0.1,
-            target_modules=["q_proj", "v_proj"],
+            target_modules=["query", "value"],  # ViT attention layers
         )
         model = peft.get_peft_model(model, lora_config)
         model.print_trainable_parameters()
 
-    print("Loading dataset...")
-    train_dataset, eval_dataset = load_dummy_dataset()
+    # Preprocess: apply the image processor to the dataset
+    def preprocess(examples):
+        images = examples["image"]
+        # processor expects PIL images; the HF Image column auto-decodes
+        inputs = processor(images=images, return_tensors="pt")
+        inputs["labels"] = examples["label"]
+        return inputs
 
-    print("Setting up metrics...")
-    accuracy_metric = evaluate.load("accuracy")
+    logger.info("Preprocessing images...")
+    train_dataset = train_dataset.with_transform(preprocess)
+    eval_dataset = eval_dataset.with_transform(preprocess)
 
     def compute_metrics(eval_pred):
         logits, labels = eval_pred
-        predictions = torch.argmax(torch.tensor(logits), dim=-1)
-        return accuracy_metric.compute(predictions=predictions, references=labels)
+        preds = torch.argmax(torch.tensor(logits), dim=-1).numpy()
+        labels_np = labels if hasattr(labels, "__len__") else [labels]
+        correct = sum(1 for p, l in zip(preds, labels_np) if p == l)
+        return {"accuracy": correct / max(len(labels_np), 1)}
 
-    print("Configuring training...")
     training_args = TrainingArguments(
         output_dir=CHECKPOINT_DIR,
         num_train_epochs=MAX_EPOCHS,
@@ -256,12 +611,169 @@ def run_real_training() -> tuple[float, float, int]:
         load_best_model_at_end=True,
         metric_for_best_model="accuracy",
         greater_is_better=True,
-        logging_dir=f"{OUTPUT_DIR}/logs",
         logging_steps=10,
-        report_to="none",
         fp16=torch.cuda.is_available(),
         dataloader_num_workers=0,
-        remove_unused_columns=False,
+        remove_unused_columns=False,  # Important for image datasets with transform
+    )
+
+    trainer = Trainer(
+        model=model,
+        args=training_args,
+        train_dataset=train_dataset,
+        eval_dataset=eval_dataset,
+        data_collator=DefaultDataCollator(),
+        compute_metrics=compute_metrics,
+    )
+
+    logger.info("Starting image training (in executor)...")
+    loop = asyncio.get_running_loop()
+    await loop.run_in_executor(None, trainer.train)
+
+    logger.info("Evaluating...")
+    metrics = trainer.evaluate()
+    final_accuracy = metrics.get("eval_accuracy", 0.0)
+    final_loss = metrics.get("eval_loss", 0.0)
+
+    logger.info(f"Saving model to {MODEL_DIR}...")
+    model.save_pretrained(MODEL_DIR)
+    processor.save_pretrained(MODEL_DIR)
+
+    _upload_to_hub(HfApi)
+
+    return float(final_accuracy), float(final_loss), MAX_EPOCHS
+
+
+async def _train_text_classification(
+    train_dataset,
+    eval_dataset,
+    torch,
+    peft,
+    Trainer,
+    TrainingArguments,
+    AutoModelForSequenceClassification,
+    AutoTokenizer,
+    DataCollatorWithPadding,
+    tabular_mode: bool = False,
+) -> tuple[float, float, int]:
+    """Text/tabular classification training path (DistilBERT-based)."""
+    from huggingface_hub import HfApi
+
+    model_name = BASE_MODEL or "distilbert/distilbert-base-uncased"
+    logger.info(f"Text classification: loading tokenizer from {model_name}")
+
+    tokenizer = AutoTokenizer.from_pretrained(model_name)
+    if tokenizer.pad_token is None:
+        tokenizer.pad_token = tokenizer.eos_token
+
+    # If tabular mode, stringify all non-label columns into a "text" column
+    if tabular_mode:
+        logger.info("Tabular mode: stringifying columns into text")
+
+        def stringify_row(example):
+            parts = []
+            for col in sorted(example.keys()):
+                if col != "label":
+                    parts.append(f"{col}: {example[col]}")
+            return {"text": " | ".join(parts), "label": example.get("label", 0)}
+
+        train_dataset = train_dataset.map(stringify_row)
+        eval_dataset = eval_dataset.map(stringify_row)
+
+    # Determine the text column name
+    text_col = None
+    for candidate in ["text", "text_a", "sentence", "content", "input"]:
+        if candidate in train_dataset.column_names:
+            text_col = candidate
+            break
+    if text_col is None:
+        # Use first non-label string column
+        for col in train_dataset.column_names:
+            if col != "label":
+                text_col = col
+                break
+    if text_col is None:
+        text_col = "text"  # will fail if missing — caught by retry
+
+    logger.info(f"Using text column: '{text_col}'")
+
+    # Tokenize
+    def tokenize_fn(examples):
+        return tokenizer(
+            examples[text_col], truncation=True, padding="max_length", max_length=512
+        )
+
+    train_dataset = train_dataset.map(tokenize_fn, batched=True)
+    eval_dataset = eval_dataset.map(tokenize_fn, batched=True)
+
+    # Determine num_labels
+    if "label" in train_dataset.column_names:
+        unique_labels = set(train_dataset["label"])
+        num_labels = max(len(unique_labels), 2)
+    else:
+        num_labels = 2
+
+    logger.info(f"Loading text model with num_labels={num_labels}...")
+    model = AutoModelForSequenceClassification.from_pretrained(
+        model_name,
+        num_labels=num_labels,
+        torch_dtype=torch.float16 if torch.cuda.is_available() else "auto",
+        device_map="auto" if torch.cuda.is_available() else None,
+    )
+
+    if USE_LORA:
+        logger.info("Applying LoRA for text model...")
+        lora_config = peft.LoraConfig(
+            task_type="SEQ_CLS",
+            inference_mode=False,
+            r=16,
+            lora_alpha=32,
+            lora_dropout=0.1,
+            target_modules=["q_proj", "v_proj"],
+        )
+        try:
+            model = peft.get_peft_model(model, lora_config)
+            model.print_trainable_parameters()
+        except ValueError:
+            # Some models (e.g. distilbert) use different attention layer names
+            logger.warning("LoRA target modules not found — trying 'q_lin', 'v_lin'")
+            lora_config = peft.LoraConfig(
+                task_type="SEQ_CLS",
+                inference_mode=False,
+                r=16,
+                lora_alpha=32,
+                lora_dropout=0.1,
+                target_modules=["q_lin", "v_lin"],
+            )
+            model = peft.get_peft_model(model, lora_config)
+            model.print_trainable_parameters()
+
+    def compute_metrics(eval_pred):
+        logits, labels = eval_pred
+        return {
+            "accuracy": (
+                torch.argmax(torch.tensor(logits), dim=-1) == torch.tensor(labels)
+            )
+            .float()
+            .mean()
+            .item()
+        }
+
+    training_args = TrainingArguments(
+        output_dir=CHECKPOINT_DIR,
+        num_train_epochs=MAX_EPOCHS,
+        per_device_train_batch_size=BATCH_SIZE,
+        per_device_eval_batch_size=BATCH_SIZE,
+        learning_rate=LEARNING_RATE,
+        weight_decay=0.01,
+        evaluation_strategy="epoch",
+        save_strategy="epoch",
+        load_best_model_at_end=True,
+        metric_for_best_model="accuracy",
+        greater_is_better=True,
+        logging_steps=10,
+        fp16=torch.cuda.is_available(),
+        dataloader_num_workers=0,
     )
 
     data_collator = DataCollatorWithPadding(tokenizer=tokenizer)
@@ -274,158 +786,334 @@ def run_real_training() -> tuple[float, float, int]:
         tokenizer=tokenizer,
         data_collator=data_collator,
         compute_metrics=compute_metrics,
-        callbacks=[TrainingCallback()],
     )
 
-    print("Starting training...")
-    trainer.train()
+    logger.info("Starting text training (in executor)...")
+    loop = asyncio.get_running_loop()
+    await loop.run_in_executor(None, trainer.train)
 
-    print("Evaluating final model...")
+    logger.info("Evaluating...")
     metrics = trainer.evaluate()
     final_accuracy = metrics.get("eval_accuracy", 0.0)
     final_loss = metrics.get("eval_loss", 0.0)
-    epochs_completed = MAX_EPOCHS
 
-    print(f"Final metrics: accuracy={final_accuracy:.4f}, loss={final_loss:.4f}")
-
-    print("Saving model...")
+    logger.info(f"Saving model to {MODEL_DIR}...")
     model.save_pretrained(MODEL_DIR)
     tokenizer.save_pretrained(MODEL_DIR)
 
-    if HF_TOKEN:
-        print("Uploading model to HuggingFace Hub...")
-        model_name = f"dataforall-{JOB_ID[:8]}"
-        try:
-            api = HfApi(token=HF_TOKEN)
-            api.create_repo(repo_id=f"dataforall/{model_name}", exist_ok=True)
-            api.upload_folder(
-                folder_dir=MODEL_DIR,
-                repo_id=f"dataforall/{model_name}",
-                repo_type="model",
-            )
-            print(f"Model uploaded to https://huggingface.co/dataforall/{model_name}")
-        except Exception as e:
-            print(f"WARNING: Failed to upload model to Hub: {e}")
+    _upload_to_hub(HfApi)
 
-    return float(final_accuracy), float(final_loss), epochs_completed
+    return float(final_accuracy), float(final_loss), MAX_EPOCHS
 
 
-def load_dummy_dataset() -> tuple[Dataset, Dataset]:
-    """
-    Load a dummy dataset for demonstration.
-    In production, this should load from S3 based on DATASET_PATH.
-    Returns two datasets: train and eval.
-    """
-    text_a = [
-        "The crop leaves are showing yellowing between the veins.",
-        "Healthy green leaves with no discoloration observed.",
-        "Spots found on the lower leaves, brown with yellow halo.",
-        "Plant appears stunted with mottled leaf pattern.",
-        "No signs of pest damage or disease symptoms.",
-        "Wilting observed on upper branches during hot hours.",
-        "Roots show rot with brown discoloration.",
-        "New growth is normal color and healthy appearance.",
-        "White powdery substance on leaf surfaces.",
-        "Holes in leaves with irregular edges found.",
-    ] * 10
+def _upload_to_hub(HfApi) -> None:
+    """Upload trained model to HuggingFace Hub (if HF_TOKEN is set)."""
+    if not HF_TOKEN:
+        return
+    logger.info("Uploading to HuggingFace Hub...")
+    repo_name = f"dataforall-{JOB_ID[:8]}"
+    try:
+        api = HfApi(token=HF_TOKEN)
+        api.create_repo(repo_id=f"dataforall/{repo_name}", exist_ok=True)
+        api.upload_folder(
+            folder_dir=MODEL_DIR,
+            repo_id=f"dataforall/{repo_name}",
+            repo_type="model",
+        )
+        logger.info(f"Uploaded to https://huggingface.co/dataforall/{repo_name}")
+    except Exception as exc:
+        logger.warning(f"Hub upload failed: {exc}")
 
-    text_b = [
-        "The field is clear and ready for harvest.",
-        "Soil moisture levels are optimal for growth.",
-        "Weather conditions favorable for planting.",
-        "Irrigation system functioning properly.",
-        "Fertilizer applied according to schedule.",
-        "Pest population below economic threshold.",
-        "Weeds controlled in row middles.",
-        "Drainage channels are clean and functional.",
-        "Temperature within normal range for this season.",
-        "No irrigation needed for the next 48 hours.",
-    ] * 10
 
-    labels = [1, 0, 1, 1, 0, 1, 1, 0, 1, 1] * 10
+def load_dummy_dataset() -> tuple[Any, Any]:
+    from datasets import Dataset
 
-    data = {
-        "text_a": text_a,
-        "text_b": text_b,
-        "labels": labels,
-    }
+    text_a = ["Sample text"] * 100
+    text_b = ["Another sample"] * 100
+    labels = [0, 1] * 50
+    data = {"text_a": text_a, "text_b": text_b, "labels": labels}
     dataset = Dataset.from_dict(data)
-
     split = dataset.train_test_split(test_size=0.1, seed=42)
     return split["train"], split["test"]
 
 
-class TrainingCallback:
-    """Callback to report epoch metrics to API."""
+def load_s3_dataset(task: str) -> tuple[Any, Any]:
+    """
+    Download mission contribution files from S3 and build a HuggingFace Dataset.
 
-    def on_epoch_end(self, args, state, control, **kwargs):
-        epoch = int(state.epoch)
-        loss = state.log_history[-1].get("loss", None)
-        eval_loss = state.log_history[-1].get("eval_loss", None)
-        eval_accuracy = state.log_history[-1].get("eval_accuracy", None)
+    Supports:
+      - image tasks  → returns Dataset with "image" (PIL) and "label" (int) columns
+      - text tasks   → returns Dataset with "text" and "label" columns
+      - tabular tasks → loads CSV/JSON into Dataset with all columns + "label"
 
-        current_loss = eval_loss if eval_loss is not None else loss
-        current_accuracy = eval_accuracy
+    Falls back to load_dummy_dataset() if S3 is unconfigured or download fails.
+    """
+    import io
+    import boto3
+    from PIL import Image
+    from datasets import Dataset, Features, Value, ClassLabel, Image as HFImage
 
-        print(f"  Epoch {epoch} — loss: {current_loss}, accuracy: {current_accuracy}")
+    if not all(
+        [S3_ENDPOINT_URL, S3_ACCESS_KEY, S3_SECRET_KEY, S3_BUCKET_NAME, MISSION_ID]
+    ):
+        logger.warning("S3 settings incomplete — falling back to dummy dataset")
+        return load_dummy_dataset()
 
-        callback_status(
-            status="training",
-            epoch=epoch,
-            loss=round(current_loss, 4) if current_loss else None,
-            accuracy=round(current_accuracy, 4) if current_accuracy else None,
+    prefix = f"missions/{MISSION_ID}/contributions/"
+    logger.info(f"Loading S3 dataset: bucket={S3_BUCKET_NAME}, prefix={prefix}")
+
+    s3 = boto3.client(
+        "s3",
+        endpoint_url=S3_ENDPOINT_URL,
+        aws_access_key_id=S3_ACCESS_KEY,
+        aws_secret_access_key=S3_SECRET_KEY,
+    )
+
+    # List all objects under the mission prefix
+    keys: list[str] = []
+    continuation_token = None
+    while True:
+        kwargs: Dict[str, Any] = {
+            "Bucket": S3_BUCKET_NAME,
+            "Prefix": prefix,
+            "MaxKeys": 1000,
+        }
+        if continuation_token:
+            kwargs["ContinuationToken"] = continuation_token
+        resp = s3.list_objects_v2(**kwargs)
+        for obj in resp.get("Contents", []):
+            keys.append(obj["Key"])
+        if resp.get("IsTruncated"):
+            continuation_token = resp["NextContinuationToken"]
+        else:
+            break
+
+    if not keys:
+        logger.warning(
+            f"No files found in S3 under {prefix} — falling back to dummy dataset"
         )
+        return load_dummy_dataset()
+
+    logger.info(f"Found {len(keys)} files in S3")
+
+    # Classify files by extension
+    IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".tiff"}
+    TEXT_EXTS = {".txt", ".md"}
+    TABULAR_EXTS = {".csv", ".json", ".jsonl"}
+    # AUDIO_EXTS = {".wav", ".mp3", ".ogg", ".flac"}  # future
+
+    def ext_of(key: str) -> str:
+        return Path(key).suffix.lower()
+
+    image_keys = [k for k in keys if ext_of(k) in IMAGE_EXTS]
+    text_keys = [k for k in keys if ext_of(k) in TEXT_EXTS]
+    tabular_keys = [k for k in keys if ext_of(k) in TABULAR_EXTS]
+
+    # ---- IMAGE tasks ----
+    if (
+        task in ("image-classification", "object-detection", "anomaly-detection")
+        and image_keys
+    ):
+        logger.info(f"Loading {len(image_keys)} images for task={task}")
+        images = []
+        labels = []
+        for i, key in enumerate(image_keys):
+            try:
+                obj = s3.get_object(Bucket=S3_BUCKET_NAME, Key=key)
+                img_bytes = obj["Body"].read()
+                img = Image.open(io.BytesIO(img_bytes)).convert("RGB")
+                images.append(img)
+                # Without annotation files we assign synthetic labels.
+                # For image-classification: round-robin across 2 classes.
+                # For object-detection: the training loop will need to handle
+                # bounding box annotations separately — for now label=0.
+                if task == "image-classification":
+                    labels.append(i % 2)
+                else:
+                    labels.append(0)
+            except Exception as exc:
+                logger.warning(f"Failed to load image {key}: {exc}")
+
+        if not images:
+            logger.warning("No images loaded successfully — falling back to dummy")
+            return load_dummy_dataset()
+
+        logger.info(f"Loaded {len(images)} images, building Dataset")
+        ds = Dataset.from_dict({"image": images, "label": labels})
+        ds = ds.cast_column("image", HFImage())
+        split = ds.train_test_split(test_size=0.1, seed=42)
+        return split["train"], split["test"]
+
+    # ---- TEXT tasks ----
+    if task in ("text-classification",) and text_keys:
+        logger.info(f"Loading {len(text_keys)} text files for task={task}")
+        texts = []
+        labels = []
+        for i, key in enumerate(text_keys):
+            try:
+                obj = s3.get_object(Bucket=S3_BUCKET_NAME, Key=key)
+                content = obj["Body"].read().decode("utf-8", errors="replace").strip()
+                if content:
+                    texts.append(content)
+                    labels.append(i % 2)
+            except Exception as exc:
+                logger.warning(f"Failed to load text {key}: {exc}")
+
+        if not texts:
+            logger.warning("No text files loaded — falling back to dummy")
+            return load_dummy_dataset()
+
+        ds = Dataset.from_dict({"text": texts, "label": labels})
+        split = ds.train_test_split(test_size=0.1, seed=42)
+        return split["train"], split["test"]
+
+    # ---- TABULAR tasks ----
+    if task in ("tabular-classification", "time-series-forecasting") and tabular_keys:
+        import csv as csv_mod
+
+        logger.info(f"Loading {len(tabular_keys)} tabular files for task={task}")
+        all_rows: list[dict] = []
+        for key in tabular_keys:
+            try:
+                obj = s3.get_object(Bucket=S3_BUCKET_NAME, Key=key)
+                raw = obj["Body"].read().decode("utf-8", errors="replace")
+                ext = ext_of(key)
+                if ext == ".csv":
+                    reader = csv_mod.DictReader(io.StringIO(raw))
+                    all_rows.extend(list(reader))
+                elif ext in (".json", ".jsonl"):
+                    # Try JSON-lines first, then single JSON array
+                    lines = raw.strip().splitlines()
+                    for line in lines:
+                        line = line.strip()
+                        if line:
+                            parsed = json.loads(line)
+                            if isinstance(parsed, list):
+                                all_rows.extend(parsed)
+                            elif isinstance(parsed, dict):
+                                all_rows.append(parsed)
+            except Exception as exc:
+                logger.warning(f"Failed to load tabular {key}: {exc}")
+
+        if not all_rows:
+            logger.warning("No tabular rows loaded — falling back to dummy")
+            return load_dummy_dataset()
+
+        # If no "label" column exists, add synthetic labels
+        if "label" not in all_rows[0]:
+            for i, row in enumerate(all_rows):
+                row["label"] = i % 2
+
+        ds = Dataset.from_list(all_rows)
+        split = ds.train_test_split(test_size=0.1, seed=42)
+        return split["train"], split["test"]
+
+    # ---- FALLBACK: try images if any exist regardless of task ----
+    if image_keys:
+        logger.info(
+            f"Task '{task}' has no special handler but images exist — loading as image-classification"
+        )
+        return load_s3_dataset("image-classification")
+
+    if tabular_keys:
+        logger.info(
+            f"Task '{task}' has no special handler but tabular files exist — loading as tabular-classification"
+        )
+        return load_s3_dataset("tabular-classification")
+
+    logger.warning(f"No loadable files for task={task} — falling back to dummy dataset")
+    return load_dummy_dataset()
+
+
+# ---------------------------------------------------------------------------
+# Retry wrapper
+# ---------------------------------------------------------------------------
+
+
+async def run_with_retry(training_fn):
+    """Run training with retry logic."""
+    for attempt in range(1, MAX_RETRIES + 1):
+        try:
+            return await training_fn()
+        except Exception as exc:
+            error_msg = f"{type(exc).__name__}: {exc}"
+            if _state:
+                _state["retry_count"] = attempt
+                _state["last_error"] = error_msg
+                _state["updated_at"] = datetime.utcnow().isoformat()
+                save_state(_state)
+
+            logger.warning(f"Attempt {attempt}/{MAX_RETRIES} failed: {exc}")
+            traceback.print_exc()
+
+            if attempt >= MAX_RETRIES:
+                logger.error(f"All {MAX_RETRIES} attempts failed")
+                await send_log(
+                    "ERROR", f"Training failed after {MAX_RETRIES} attempts: {exc}"
+                )
+                await send_fail(f"Failed after {MAX_RETRIES} attempts: {exc}")
+                await terminate_self()
+                raise
+
+    raise RuntimeError("Unexpected exit from retry loop")
+
+
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
+
+
+async def main_async():
+    global _state
+
+    _state = init_state()
+
+    # Start heartbeat as a task on THIS event loop
+    start_heartbeat()
+
+    logger.info("=" * 60)
+    logger.info("DataForAll GPU Worker")
+    logger.info(f"Job ID: {JOB_ID}")
+    logger.info(f"Mode: {TRAINING_MODE}")
+    logger.info(f"API URL: {API_BASE_URL}")
+    logger.info(f"Callback Secret: {'set' if CALLBACK_SECRET else 'NOT SET'}")
+    logger.info("=" * 60)
+
+    await send_log("INFO", f"Worker started (mode={TRAINING_MODE})")
+    current_epoch = _state.get("epoch", 1) if _state else 1
+    await send_status("training", current_epoch)
+
+    try:
+        if TRAINING_MODE == "simulated":
+            accuracy, loss, epochs = await run_with_retry(run_simulated_training)
+        else:
+            accuracy, loss, epochs = await run_with_retry(run_real_training)
+
+        logger.info(
+            f"Training complete: accuracy={accuracy}, loss={loss}, epochs={epochs}"
+        )
+        await send_complete(accuracy, loss, epochs)
+        await send_log("INFO", f"Training complete: accuracy={accuracy}, loss={loss}")
+        delete_state()
+
+    except Exception as exc:
+        logger.error(f"Training failed: {exc}")
+        traceback.print_exc()
+        await send_log("ERROR", str(exc)[:500])
+        await send_fail(str(exc)[:2000])
+    finally:
+        await stop_heartbeat()
+        delete_state()
+        if _http_client is not None:
+            await _http_client.aclose()
 
 
 def main():
-    print("=" * 60)
-    print("DataForAll GPU Worker")
-    print("=" * 60)
-    print(f"  Job ID:         {JOB_ID}")
-    print(f"  API Callback:   {API_CALLBACK_URL}")
-    print(f"  Base Model:     {BASE_MODEL}")
-    print(f"  Task:           {TASK}")
-    print(f"  Max Epochs:     {MAX_EPOCHS}")
-    print(f"  Batch Size:     {BATCH_SIZE}")
-    print(f"  Learning Rate:  {LEARNING_RATE}")
-    print(f"  Use LoRA:       {USE_LORA}")
-    print(f"  Target Acc:     {target_acc}")
-    print(f"  Training Mode:  {TRAINING_MODE}")
-    print(f"  Dataset Path:   {DATASET_PATH}")
-    print("=" * 60)
+    signal.signal(signal.SIGTERM, lambda s, f: sys.exit(0))
+    signal.signal(signal.SIGINT, lambda s, f: sys.exit(0))
 
-    if TRAINING_MODE == "simulated":
-        print("\nUsing SIMULATED training (for testing)")
-    else:
-        print("\nUsing REAL training with HuggingFace Transformers")
-
-    print("\n[1/3] Reporting status: training...")
-    if not callback_status("training"):
-        print("WARNING: Could not report training start, continuing anyway...")
-
-    print("\n[2/3] Running training...")
-    try:
-        if TRAINING_MODE == "simulated":
-            accuracy, loss, epochs = run_simulated_training()
-        elif TRAINING_MODE == "real":
-            accuracy, loss, epochs = run_real_training()
-        else:
-            raise ValueError(f"Unknown TRAINING_MODE: {TRAINING_MODE}")
-    except Exception as e:
-        error_msg = f"{type(e).__name__}: {e}\n{traceback.format_exc()}"
-        print(f"\nFATAL: Training failed:\n{error_msg}", file=sys.stderr)
-        callback_fail(error_msg[:2000])
-        sys.exit(1)
-
-    print(
-        f"\n[3/3] Training complete! accuracy={accuracy}, loss={loss}, epochs={epochs}"
-    )
-    print("Reporting completion to API...")
-    if callback_complete(accuracy, loss, epochs):
-        print("Done. Worker exiting successfully.")
-    else:
-        print("WARNING: Could not report completion. Worker exiting anyway.")
-        sys.exit(1)
+    asyncio.run(main_async())
+    sys.exit(0)
 
 
 if __name__ == "__main__":

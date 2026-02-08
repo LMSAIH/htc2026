@@ -38,6 +38,14 @@ async function request<T>(
 
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
+    // Auto-logout on 401 — stale token / re-seeded DB
+    if (res.status === 401 && getToken()) {
+      try {
+        localStorage.removeItem("dfa_auth");
+        localStorage.removeItem("dfa_user");
+      } catch { /* ignore */ }
+      window.location.href = "/login";
+    }
     throw new ApiError(res.status, body.detail ?? res.statusText);
   }
 
@@ -250,6 +258,13 @@ export async function apiUploadFiles(
 
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
+    if (res.status === 401 && getToken()) {
+      try {
+        localStorage.removeItem("dfa_auth");
+        localStorage.removeItem("dfa_user");
+      } catch { /* ignore */ }
+      window.location.href = "/login";
+    }
     throw new ApiError(res.status, body.detail ?? res.statusText);
   }
   return res.json();
@@ -309,4 +324,34 @@ export async function apiGetLeaderboard(limit = 50): Promise<{
   return request<{ entries: LeaderboardEntry[]; total: number }>(
     `/leaderboard?limit=${limit}`,
   );
+}
+
+// ── AI Models ────────────────────────────────────────────────────────
+
+export interface AIModelResponse {
+  id: string;
+  mission_id: string;
+  name: string;
+  status: string;
+  accuracy: number | null;
+  epochs_completed: number;
+  total_epochs: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export async function apiGetModels(missionId?: string): Promise<{
+  models: AIModelResponse[];
+  total: number;
+}> {
+  const qs = missionId ? `?mission_id=${missionId}` : "";
+  return request<{ models: AIModelResponse[]; total: number }>(`/ai/models${qs}`);
+}
+
+/**
+ * Build a direct URL to fetch file content for preview.
+ * Returns undefined for files that likely have no stored content (seed data).
+ */
+export function getFilePreviewUrl(fileId: string): string {
+  return `${API_BASE}/missions/files/${fileId}/content`;
 }

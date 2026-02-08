@@ -22,10 +22,9 @@ export default function LoginPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
-    await new Promise((r) => setTimeout(r, 400));
-    login(email, password);
+    const ok = await login(email, password);
     setLoading(false);
-    navigate("/app");
+    if (ok) navigate("/app");
   };
 
   return (

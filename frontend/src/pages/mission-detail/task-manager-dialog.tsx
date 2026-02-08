@@ -275,7 +275,7 @@ export function TaskManagerDialog({
           </div>
 
           {/* ═══ RIGHT PANEL — Task Configuration ═══ */}
-          <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
+          <div className="flex-1 min-w-0 flex flex-col overflow-y-auto">
             {activeTask && activeTemplate ? (
               <ScrollArea className="flex-1">
                 <div className="p-4 sm:p-6 lg:p-8">

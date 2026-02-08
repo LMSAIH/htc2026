@@ -1,7 +1,9 @@
 import uuid
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, Form
+from fastapi.responses import RedirectResponse
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.core.database import get_db
 from app.core.auth import get_current_user, get_optional_user
@@ -80,7 +82,10 @@ async def list_missions(
     limit: int = Query(20, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
 ):
-    query = select(Mission)
+    query = select(Mission).options(
+        selectinload(Mission.datasets),
+        selectinload(Mission.members).selectinload(MissionMember.user),
+    )
     count_query = select(func.count(Mission.id))
 
     if status:
@@ -159,7 +164,12 @@ async def get_mission(
     mission_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
 ):
-    result = await db.execute(select(Mission).where(Mission.id == mission_id))
+    result = await db.execute(
+        select(Mission).where(Mission.id == mission_id).options(
+            selectinload(Mission.datasets),
+            selectinload(Mission.members).selectinload(MissionMember.user),
+        )
+    )
     mission = result.scalar_one_or_none()
     if not mission:
         raise HTTPException(status_code=404, detail="Mission not found")
@@ -253,6 +263,10 @@ async def my_missions(
 
     result = await db.execute(
         select(Mission).where(Mission.id.in_(mission_ids))
+        .options(
+            selectinload(Mission.datasets),
+            selectinload(Mission.members).selectinload(MissionMember.user),
+        )
         .order_by(Mission.created_at.desc())
     )
     missions = result.scalars().all()
@@ -283,17 +297,33 @@ async def upload_files(
     for f in files:
         content = await f.read()
         size_kb = len(content) // 1024
+        content_type = f.content_type or "application/octet-stream"
+
+        # Generate S3 key and upload to object storage
+        from app.services.s3 import generate_s3_key, get_s3_client
+        from app.core.config import get_settings
+        s3_key = generate_s3_key(mission_id, f.filename or "unknown")
+        s3_client = get_s3_client()
+        s3_client.put_object(
+            Bucket=get_settings().S3_BUCKET_NAME,
+            Key=s3_key,
+            Body=content,
+            ContentType=content_type,
+        )
 
         data_file = DataFile(
             dataset_id=dataset_id,
             filename=f.filename or "unknown",
             size_kb=size_kb,
-            file_type=f.content_type or "application/octet-stream",
+            file_type=content_type,
             status=FileStatus.PENDING,
             contributor_id=user.id,
             contributor_name=user.name,
+            s3_key=s3_key,
         )
         db.add(data_file)
+        await db.flush()  # get data_file.id
+
         created.append(data_file)
 
     # Update dataset counts
@@ -336,6 +366,25 @@ async def upload_files(
             for df in created
         ],
     }
+
+
+# ── FILE CONTENT / PREVIEW ──────────────────────────────────────────
+@router.get("/files/{file_id}/content")
+async def get_file_content(
+    file_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(select(DataFile).where(DataFile.id == file_id))
+    data_file = result.scalar_one_or_none()
+    if not data_file:
+        raise HTTPException(status_code=404, detail="File not found")
+
+    if not data_file.s3_key:
+        raise HTTPException(status_code=404, detail="File content not available")
+
+    from app.services.s3 import generate_presigned_download_url
+    url = generate_presigned_download_url(data_file.s3_key, expires_in=3600)
+    return RedirectResponse(url=url, status_code=302)
 
 
 # ── GET FILES ────────────────────────────────────────────────────────

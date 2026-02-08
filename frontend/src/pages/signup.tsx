@@ -23,10 +23,9 @@ export default function SignupPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
-    await new Promise((r) => setTimeout(r, 400));
-    signup(name, email, password);
+    const ok = await signup(name, email, password);
     setLoading(false);
-    navigate("/app");
+    if (ok) navigate("/app");
   };
 
   return (

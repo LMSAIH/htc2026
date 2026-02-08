@@ -41,6 +41,9 @@ Thumbs.db
 # Docker
 docker-compose.override.yml
 
+# Uploaded files
+backend/uploads/
+
 # Alembic
 backend/alembic/versions/__pycache__/
 

@@ -20,6 +20,7 @@ import {
   Layers,
   AlertCircle,
   Shield,
+  Video,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -35,96 +36,132 @@ import {
   type AnnotationValue,
 } from "@/components/annotation/task-renderer";
 import { useStore } from "@/lib/store";
+import { getFilePreviewUrl } from "@/lib/api";
 
 // ─── Helpers ─────────────────────────────────────────────────────────
 function fileIcon(ext: string) {
-  if ([".jpg", ".jpeg", ".png", ".webp"].includes(ext)) return ImageIcon;
-  if ([".mp3", ".wav", ".ogg", ".flac"].includes(ext)) return Music;
-  if ([".csv", ".json", ".xlsx"].includes(ext)) return FileSpreadsheet;
+  if ([".jpg", ".jpeg", ".png", ".webp", ".gif", ".svg", ".bmp"].includes(ext)) return ImageIcon;
+  if ([".mp3", ".wav", ".ogg", ".flac", ".m4a"].includes(ext)) return Music;
+  if ([".mp4", ".webm", ".mov", ".avi"].includes(ext)) return Video;
+  if ([".csv", ".json", ".xlsx", ".tsv", ".xml"].includes(ext)) return FileSpreadsheet;
   return FileText;
 }
 
+const IMAGE_EXTS = new Set([".jpg", ".jpeg", ".png", ".webp", ".gif", ".svg", ".bmp"]);
+const AUDIO_EXTS = new Set([".mp3", ".wav", ".ogg", ".flac", ".m4a"]);
+const VIDEO_EXTS = new Set([".mp4", ".webm", ".mov", ".avi"]);
+const TEXT_EXTS  = new Set([".csv", ".json", ".txt", ".tsv", ".xml", ".md", ".log", ".yaml", ".yml"]);
+
 function MediaPreview({ file, zoom }: { file: DataFile; zoom: number }) {
   const ext = file.type.toLowerCase();
-  const isImage = [".jpg", ".jpeg", ".png", ".webp"].includes(ext);
-  const isAudio = [".mp3", ".wav", ".ogg", ".flac"].includes(ext);
-  const isData = [".csv", ".json", ".xlsx"].includes(ext);
+  const url = getFilePreviewUrl(file.id);
+  const [loadError, setLoadError] = useState(false);
+  const [textContent, setTextContent] = useState<string | null>(null);
+  const [textLoading, setTextLoading] = useState(false);
+
+  // Reset state when file changes
+  useEffect(() => {
+    setLoadError(false);
+    setTextContent(null);
+  }, [file.id]);
+
+  // Load text content for data files
+  useEffect(() => {
+    if (!TEXT_EXTS.has(ext)) return;
+    setTextLoading(true);
+    fetch(url)
+      .then((r) => {
+        if (!r.ok) throw new Error("not found");
+        return r.text();
+      })
+      .then((t) => { setTextContent(t); setTextLoading(false); })
+      .catch(() => { setLoadError(true); setTextLoading(false); });
+  }, [file.id, ext, url]);
+
+  const isImage = IMAGE_EXTS.has(ext);
+  const isAudio = AUDIO_EXTS.has(ext);
+  const isVideo = VIDEO_EXTS.has(ext);
+  const isText  = TEXT_EXTS.has(ext);
+
+  // ── Real image preview ──
+  if (isImage && !loadError) {
+    return (
+      <div className="w-full h-full flex items-center justify-center overflow-auto bg-muted/10"
+           style={{ transform: `scale(${zoom})`, transformOrigin: "center" }}>
+        <img
+          src={url}
+          alt={file.filename}
+          className="max-w-full max-h-full object-contain"
+          onError={() => setLoadError(true)}
+        />
+      </div>
+    );
+  }
+
+  // ── Real audio preview ──
+  if (isAudio && !loadError) {
+    return (
+      <div className="w-full h-full flex flex-col items-center justify-center gap-4 bg-gradient-to-br from-purple-50 to-purple-100 dark:from-purple-900/20 dark:to-purple-800/20">
+        <Music className="h-16 w-16 text-purple-400 opacity-60" />
+        <span className="font-mono text-sm text-purple-700 dark:text-purple-300">{file.filename}</span>
+        <audio controls src={url} className="w-80" onError={() => setLoadError(true)}>
+          Your browser does not support the audio element.
+        </audio>
+        <span className="text-xs text-muted-foreground">{(file.size_kb / 1024).toFixed(1)} MB</span>
+      </div>
+    );
+  }
+
+  // ── Real video preview ──
+  if (isVideo && !loadError) {
+    return (
+      <div className="w-full h-full flex items-center justify-center bg-black"
+           style={{ transform: `scale(${zoom})`, transformOrigin: "center" }}>
+        <video controls src={url} className="max-w-full max-h-full" onError={() => setLoadError(true)}>
+          Your browser does not support the video element.
+        </video>
+      </div>
+    );
+  }
+
+  // ── Real text/data preview ──
+  if (isText && textContent !== null) {
+    return (
+      <div className="w-full h-full overflow-auto bg-background p-4"
+           style={{ transform: `scale(${zoom})`, transformOrigin: "top left" }}>
+        <div className="flex items-center gap-2 mb-3 text-xs text-muted-foreground">
+          <FileSpreadsheet className="h-3.5 w-3.5" />
+          <span className="font-mono">{file.filename}</span>
+          <span>·</span>
+          <span>{(file.size_kb / 1024).toFixed(1)} MB</span>
+        </div>
+        <pre className="text-xs font-mono whitespace-pre-wrap break-all bg-muted/40 rounded-lg p-4 max-h-[calc(100%-3rem)] overflow-auto border">
+          {textContent.slice(0, 50_000)}{textContent.length > 50_000 ? "\n\n… (truncated)" : ""}
+        </pre>
+      </div>
+    );
+  }
+  if (isText && textLoading) {
+    return (
+      <div className="w-full h-full flex items-center justify-center text-muted-foreground">
+        <div className="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+      </div>
+    );
+  }
+
+  // ── Fallback placeholder (seed data or unsupported type) ──
+  const Icon = fileIcon(ext);
+  const bgClass = isImage ? "from-green-100 to-green-200 dark:from-green-900/30 dark:to-green-800/30 text-green-700 dark:text-green-300"
+    : isAudio ? "from-purple-100 to-purple-200 dark:from-purple-900/30 dark:to-purple-800/30 text-purple-700 dark:text-purple-300"
+    : "from-slate-100 to-slate-200 dark:from-slate-800/30 dark:to-slate-700/30 text-muted-foreground";
 
   return (
-    <div
-      className="w-full h-full flex items-center justify-center overflow-auto"
-      style={{ transform: `scale(${zoom})`, transformOrigin: "center" }}
-    >
-      {isImage && (
-        <div className="relative w-full h-full bg-gradient-to-br from-green-100 to-green-200 dark:from-green-900/30 dark:to-green-800/30 flex flex-col items-center justify-center gap-2 text-green-700 dark:text-green-300">
-          <ImageIcon className="h-16 w-16 opacity-40" />
-          <span className="font-mono text-sm opacity-70">{file.filename}</span>
-          <span className="text-xs text-muted-foreground">
-            {(file.size_kb / 1024).toFixed(1)} MB
-          </span>
-          {/* Simulated image grid for visual realism */}
-          <div className="grid grid-cols-3 gap-1 mt-3 opacity-20">
-            {Array.from({ length: 9 }).map((_, i) => (
-              <div
-                key={i}
-                className="w-6 h-6 rounded bg-green-600"
-                style={{ opacity: 0.3 + Math.random() * 0.7 }}
-              />
-            ))}
-          </div>
-        </div>
-      )}
-      {isAudio && (
-        <div className="relative w-full h-full bg-gradient-to-br from-purple-100 to-purple-200 dark:from-purple-900/30 dark:to-purple-800/30 flex flex-col items-center justify-center gap-3 text-purple-700 dark:text-purple-300">
-          <Music className="h-16 w-16 opacity-40" />
-          <span className="font-mono text-sm opacity-70">{file.filename}</span>
-          <div className="flex items-center gap-1">
-            {Array.from({ length: 40 }).map((_, i) => (
-              <div
-                key={i}
-                className="w-1 rounded-full bg-purple-400/60 dark:bg-purple-400/40"
-                style={{ height: `${12 + Math.random() * 36}px` }}
-              />
-            ))}
-          </div>
-          <span className="text-xs text-muted-foreground">
-            {(file.size_kb / 1024).toFixed(1)} MB
-          </span>
-        </div>
-      )}
-      {isData && (
-        <div className="relative w-full h-full bg-gradient-to-br from-slate-100 to-slate-200 dark:from-slate-800/30 dark:to-slate-700/30 flex flex-col items-center justify-center gap-2 text-muted-foreground">
-          <FileSpreadsheet className="h-16 w-16 opacity-40" />
-          <span className="font-mono text-sm opacity-70">{file.filename}</span>
-          <span className="text-xs">
-            {(file.size_kb / 1024).toFixed(1)} MB
-          </span>
-          {/* Fake data table */}
-          <div className="mt-3 space-y-1 opacity-30 text-[10px] font-mono">
-            <div className="flex gap-4">
-              <span>timestamp</span>
-              <span>pm25</span>
-              <span>temp</span>
-            </div>
-            <div className="flex gap-4">
-              <span>2026-01-15</span>
-              <span>34.2</span>
-              <span>18.5</span>
-            </div>
-            <div className="flex gap-4">
-              <span>2026-01-16</span>
-              <span>28.7</span>
-              <span>19.1</span>
-            </div>
-          </div>
-        </div>
-      )}
-      {!isImage && !isAudio && !isData && (
-        <div className="text-center text-muted-foreground">
-          <FileText className="h-16 w-16 mx-auto opacity-40 mb-2" />
-          <span className="font-mono text-sm">{file.filename}</span>
-        </div>
-      )}
+    <div className={`w-full h-full flex flex-col items-center justify-center gap-2 bg-gradient-to-br ${bgClass}`}
+         style={{ transform: `scale(${zoom})`, transformOrigin: "center" }}>
+      <Icon className="h-16 w-16 opacity-40" />
+      <span className="font-mono text-sm opacity-70">{file.filename}</span>
+      <span className="text-xs text-muted-foreground">{(file.size_kb / 1024).toFixed(1)} MB</span>
+      <span className="text-[10px] text-muted-foreground/60 mt-1">No preview available — file content not stored</span>
     </div>
   );
 }
@@ -342,7 +379,7 @@ export default function AnnotatePage() {
           {answeredCount}/{tasks.length} tasks
         </Badge>
 
-        {userRole === "reviewer" && (
+        {(userRole === "reviewer" || (mission && store.user && mission.owner_id === store.user.id)) && (
           <Badge variant="secondary" className="text-[10px] px-2 py-0.5 bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">
             <Shield className="h-3 w-3 mr-1" />
             Reviewer

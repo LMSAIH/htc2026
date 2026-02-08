@@ -1,4 +1,4 @@
-﻿import { useState } from "react";
+﻿import { useState, useEffect } from "react";
 import { useParams, Link } from "react-router-dom";
 import {
   ArrowLeft,
@@ -38,6 +38,33 @@ export default function MissionDetailPage() {
   const userRole = mission ? store.getUserRole(mission.id) : undefined;
 
   const [tab, setTab] = useState("readme");
+  const [loadingMission, setLoadingMission] = useState(!mission);
+
+  // Fetch mission from API if not in local state (direct URL navigation)
+  useEffect(() => {
+    if (!id) return;
+    if (mission) {
+      // Mission exists locally — fetch its files from the API
+      store.fetchMissionFiles(mission.id);
+      setLoadingMission(false);
+      return;
+    }
+    // Not in local state — fetch from API
+    setLoadingMission(true);
+    store.fetchMission(id).then((m) => {
+      if (m) store.fetchMissionFiles(m.id);
+      setLoadingMission(false);
+    });
+  }, [id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  if (loadingMission) {
+    return (
+      <div className="flex flex-col items-center justify-center py-24 gap-4 text-muted-foreground">
+        <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+        <p className="text-sm">Loading mission…</p>
+      </div>
+    );
+  }
 
   if (!mission) {
     return (
@@ -67,8 +94,8 @@ export default function MissionDetailPage() {
     { value: "files", label: `Files (${mission.datasets.length})`, icon: Database, always: true },
     { value: "models", label: `Models (${models.length})`, icon: Box, always: models.length > 0 },
     { value: "contribute", label: "Contribute", icon: Upload, always: true },
-    { value: "annotate", label: "Annotate", icon: Pencil, always: userRole === "annotator" || userRole === "reviewer" },
-    { value: "review", label: "Review", icon: CheckCircle2, always: userRole === "reviewer" },
+    { value: "annotate", label: "Annotate", icon: Pencil, always: store.isAuthenticated },
+    { value: "review", label: "Review", icon: CheckCircle2, always: mission.owner_id === store.user?.id || userRole === "reviewer" },
   ].filter((t) => t.always);
 
   return (
@@ -114,7 +141,7 @@ export default function MissionDetailPage() {
                   <>
                     {" · "}
                     <span className="text-primary font-medium">
-                      You're a {getRoleLabel(userRole).toLowerCase()}
+                      Member{userRole !== "contributor" && ` · ${getRoleLabel(userRole)}`}
                     </span>
                   </>
                 )}
@@ -215,18 +242,18 @@ export default function MissionDetailPage() {
             <ContributeTab mission={mission} />
           </TabsContent>
 
-          {(userRole === "annotator" || userRole === "reviewer") && (
+          {store.isAuthenticated && (
             <TabsContent value="annotate" className="mt-0">
               <AnnotateTab
                 mission={mission}
-                userRole={userRole}
+                isMissionOwner={mission.owner_id === store.user?.id}
                 needsAnnotation={needsAnnotation}
                 allFiles={allFiles}
               />
             </TabsContent>
           )}
 
-          {userRole === "reviewer" && (
+          {(mission.owner_id === store.user?.id || userRole === "reviewer") && (
             <TabsContent value="review" className="mt-0">
               <ReviewTab
                 mission={mission}

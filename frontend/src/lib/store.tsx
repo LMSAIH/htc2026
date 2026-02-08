@@ -17,11 +17,6 @@ import {
   type MissionTaskConfig,
   type Role,
   type ModelType,
-  MISSIONS as SEED_MISSIONS,
-  LEADERBOARD as SEED_LEADERBOARD,
-  MODELS as SEED_MODELS,
-  CURRENT_USER as SEED_USER,
-  getBadge,
 } from "./mock-data";
 import {
   apiLogin,
@@ -31,12 +26,16 @@ import {
   apiCreateMission,
   apiJoinMission,
   apiUploadFiles as apiUploadFilesRaw,
+  apiGetFiles,
   apiReviewFile,
   apiAnnotateFile,
   apiUpdateMissionTasks,
   apiGetLeaderboard,
-  apiGetMyMissions,
+  apiGetModels,
   ApiError,
+  type MissionResponse,
+  type DatasetResponse,
+  type ContributorResponse,
 } from "./api";
 
 // ─── Helpers ────────────────────────────────────────────────────────
@@ -45,8 +44,79 @@ function genId(prefix: string) {
   return `${prefix}${_nextId++}`;
 }
 
-function deepClone<T>(obj: T): T {
-  return JSON.parse(JSON.stringify(obj));
+/** Convert API MissionResponse → frontend Mission type */
+function mapMission(m: MissionResponse): Mission {
+  return {
+    id: m.id,
+    title: m.title,
+    reason: m.reason || "",
+    description: m.description,
+    how_to_contribute: m.how_to_contribute || "",
+    category: m.category || "",
+    model_type: (m.model_type || "vision") as ModelType,
+    status: m.status.toLowerCase() as Mission["status"],
+    owner_id: m.owner_id || "",
+    owner_name: m.owner_name || "",
+    datasets: (m.datasets || []).map(mapDataset),
+    accepted_types: m.accepted_types || [],
+    target_contributions: m.target_contributions,
+    current_contributions: m.current_contributions,
+    contributors: (m.contributors || []).map(mapContributor),
+    created_at: m.created_at,
+    model_available: m.model_available,
+    configuredTasks: m.configured_tasks as MissionTaskConfig[] | undefined,
+  };
+}
+
+function mapDataset(d: DatasetResponse) {
+  return {
+    id: d.id,
+    name: d.name,
+    description: d.description || "",
+    file_count: d.file_count,
+    total_size_mb: d.total_size_mb,
+    accepted_types: d.accepted_types || [],
+    sample_files: [] as DataFile[],
+    created_at: d.created_at,
+  };
+}
+
+function mapContributor(c: ContributorResponse) {
+  return {
+    user_id: c.user_id,
+    user_name: c.user_name,
+    role: c.role.toLowerCase() as Role,
+    approved_count: c.approved_count,
+    total_count: c.total_count,
+  };
+}
+
+/** Convert API model → frontend TrainedModel */
+function mapModel(m: {
+  id: string;
+  mission_id: string;
+  name: string;
+  status: string;
+  accuracy: number | null;
+  epochs_completed: number;
+  total_epochs: number;
+  created_at: string;
+}): TrainedModel {
+  return {
+    id: m.id,
+    mission_id: m.mission_id,
+    name: m.name,
+    description: "",
+    task: "",
+    framework: "",
+    accuracy: m.accuracy ?? 0,
+    downloads: 0,
+    version: "1.0",
+    status: m.status.toLowerCase() as TrainedModel["status"],
+    updated_at: m.created_at,
+    input_example: "",
+    output_example: "",
+  };
 }
 
 // ─── State shape ────────────────────────────────────────────────────
@@ -57,15 +127,16 @@ interface AppState {
   leaderboard: LeaderboardEntry[];
   models: TrainedModel[];
   likedMissions: Set<string>;
-  /** missionId -> fileId -> taskKey -> serializable annotation value */
+  loading: boolean;
+  /** missionId → fileId → taskKey → serializable annotation value */
   annotationResponses: Record<string, Record<string, Record<string, unknown>>>;
 }
 
 // ─── Actions ────────────────────────────────────────────────────────
 interface AppActions {
   // Auth
-  login: (email: string, password: string) => void;
-  signup: (name: string, email: string, password: string) => void;
+  login: (email: string, password: string) => Promise<boolean>;
+  signup: (name: string, email: string, password: string) => Promise<boolean>;
   logout: () => void;
 
   // Missions
@@ -80,24 +151,15 @@ interface AppActions {
     accepted_types: string[];
     datasets: { name: string; description: string }[];
     configuredTasks: MissionTaskConfig[];
-  }) => string; // returns new mission ID
+  }) => Promise<string>;
 
-  joinMission: (missionId: string, role: Role) => void;
+  joinMission: (missionId: string) => void;
 
-  // File management
-  uploadFiles: (
-    missionId: string,
-    datasetId: string,
-    files: { name: string; size: number; type: string }[],
-  ) => void;
+  // File management — accepts actual File objects for FormData upload
+  uploadFiles: (missionId: string, datasetId: string, files: File[]) => Promise<void>;
 
   // Annotation (inline quick label)
-  addAnnotation: (
-    missionId: string,
-    fileId: string,
-    label: string,
-    notes: string,
-  ) => void;
+  addAnnotation: (missionId: string, fileId: string, label: string, notes: string) => void;
 
   // Full annotation workspace responses (per-task values for a file)
   saveAnnotationResponses: (
@@ -111,20 +173,20 @@ interface AppActions {
   rejectFile: (missionId: string, fileId: string, note?: string) => void;
 
   // Reviewer: configure annotation tasks for mission
-  updateMissionTasks: (
-    missionId: string,
-    tasks: MissionTaskConfig[],
-  ) => void;
+  updateMissionTasks: (missionId: string, tasks: MissionTaskConfig[]) => void;
 
   // Like
   toggleLike: (missionId: string) => void;
 
   // Derived helpers
   getMission: (id: string) => Mission | undefined;
+  fetchMission: (id: string) => Promise<Mission | undefined>;
+  fetchMissionFiles: (missionId: string) => Promise<void>;
   getModels: (missionId: string) => TrainedModel[];
   getUserMissions: () => { mission: Mission; role: Role }[];
   getFilesNeedingAnnotation: (missionId: string) => DataFile[];
   getUserRole: (missionId: string) => Role | undefined;
+  refreshMissions: () => Promise<void>;
 }
 
 type Store = AppState & AppActions;
@@ -133,163 +195,162 @@ const StoreContext = createContext<Store | null>(null);
 
 // ─── Provider ───────────────────────────────────────────────────────
 export function StoreProvider({ children }: { children: ReactNode }) {
+  // Restore auth from localStorage
   const [isAuthenticated, setIsAuthenticated] = useState(() => {
-    try { return localStorage.getItem("dfa_auth") === "1"; } catch { return false; }
+    try {
+      const raw = localStorage.getItem("dfa_auth");
+      if (!raw) return false;
+      const parsed = JSON.parse(raw);
+      return !!parsed?.token;
+    } catch {
+      return false;
+    }
   });
   const [user, setUser] = useState<UserProfile | null>(() => {
     try {
       const saved = localStorage.getItem("dfa_user");
-      return saved ? JSON.parse(saved) as UserProfile : null;
-    } catch { return null; }
+      return saved ? (JSON.parse(saved) as UserProfile) : null;
+    } catch {
+      return null;
+    }
   });
-  const [missions, setMissions] = useState<Mission[]>(() =>
-    deepClone(SEED_MISSIONS),
-  );
-  const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>(() =>
-    deepClone(SEED_LEADERBOARD),
-  );
-  const [models, _setModels] = useState<TrainedModel[]>(() =>
-    deepClone(SEED_MODELS),
-  );
+
+  // Start empty — populated from API
+  const [missions, setMissions] = useState<Mission[]>([]);
+  const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
+  const [models, setModels] = useState<TrainedModel[]>([]);
   const [likedMissions, setLikedMissions] = useState<Set<string>>(new Set());
+  const [loading, setLoading] = useState(true);
   const [annotationResponses, setAnnotationResponses] = useState<
     Record<string, Record<string, Record<string, unknown>>>
   >({});
 
   // ─── Auth ─────────────────────────────────────────────────────────
-  const login = useCallback((email: string, password: string) => {
-    apiLogin(email, password)
-      .then((res) => {
+  const login = useCallback(
+    async (email: string, password: string): Promise<boolean> => {
+      try {
+        const res = await apiLogin(email, password);
         const u: UserProfile = res.user;
         setUser(u);
         setIsAuthenticated(true);
         try {
           localStorage.setItem("dfa_auth", JSON.stringify({ token: res.token }));
           localStorage.setItem("dfa_user", JSON.stringify(u));
-        } catch {}
+        } catch { /* quota error */ }
         toast.success(`Welcome back, ${u.name}!`);
-      })
-      .catch((err) => {
-        // Fallback to mock
-        const u: UserProfile = { ...deepClone(SEED_USER), email };
-        setUser(u);
-        setIsAuthenticated(true);
-        try { localStorage.setItem("dfa_auth", "1"); localStorage.setItem("dfa_user", JSON.stringify(u)); } catch {}
-        toast.success(`Welcome back, ${u.name}! (offline mode)`);
-      });
-  }, []);
+        return true;
+      } catch (err) {
+        const msg =
+          err instanceof ApiError ? err.message : "Login failed. Please try again.";
+        toast.error(msg);
+        return false;
+      }
+    },
+    [],
+  );
 
-  const signup = useCallback((name: string, email: string, password: string) => {
-    apiSignup(name, email, password)
-      .then((res) => {
+  const signup = useCallback(
+    async (name: string, email: string, password: string): Promise<boolean> => {
+      try {
+        const res = await apiSignup(name, email, password);
         const u: UserProfile = res.user;
         setUser(u);
         setIsAuthenticated(true);
         try {
           localStorage.setItem("dfa_auth", JSON.stringify({ token: res.token }));
           localStorage.setItem("dfa_user", JSON.stringify(u));
-        } catch {}
+        } catch { /* quota error */ }
         toast.success(`Welcome to DataForAll, ${name}!`);
-      })
-      .catch((err) => {
-        // Fallback to mock
-        const newUser: UserProfile = {
-          id: genId("u"),
-          name,
-          avatar: name.split(" ").map((w) => w[0]).join("").toUpperCase().slice(0, 2),
-          email,
-          approved_contributions: 0,
-          total_contributions: 0,
-          annotations: 0,
-          reviews: 0,
-          rank: leaderboard.length + 1,
-          badge: getBadge(0),
-          joined_at: new Date().toISOString(),
-        };
-        setUser(newUser);
-        setIsAuthenticated(true);
-        try { localStorage.setItem("dfa_auth", "1"); localStorage.setItem("dfa_user", JSON.stringify(newUser)); } catch {}
-        setLeaderboard((prev) => [
-          ...prev,
-          {
-            user_id: newUser.id,
-            user_name: newUser.name,
-            approved_contributions: 0,
-            annotations: 0,
-            reviews: 0,
-            score: 0,
-            rank: prev.length + 1,
-            badge: getBadge(0),
-          },
-        ]);
-        toast.success(`Welcome to DataForAll, ${name}! (offline mode)`);
-      });
-  }, [leaderboard.length]);
+        return true;
+      } catch (err) {
+        const msg =
+          err instanceof ApiError ? err.message : "Signup failed. Please try again.";
+        toast.error(msg);
+        return false;
+      }
+    },
+    [],
+  );
 
   const logout = useCallback(() => {
     setIsAuthenticated(false);
     setUser(null);
-    try { localStorage.removeItem("dfa_auth"); localStorage.removeItem("dfa_user"); } catch {}
+    try {
+      localStorage.removeItem("dfa_auth");
+      localStorage.removeItem("dfa_user");
+    } catch { /* ignore */ }
     toast("Logged out successfully");
   }, []);
 
-  // ─── Missions ─────────────────────────────────────────────────────
-  // Fetch missions from API on mount
-  useEffect(() => {
-    apiGetMissions({ limit: 100 })
-      .then((res) => {
-        if (res.missions.length > 0) {
-          const mapped: Mission[] = res.missions.map((m) => ({
-            id: m.id,
-            title: m.title,
-            reason: m.reason || "",
-            description: m.description,
-            how_to_contribute: m.how_to_contribute || "",
-            category: m.category || "",
-            model_type: (m.model_type || "vision") as ModelType,
-            status: m.status as Mission["status"],
-            owner_id: m.owner_id || "",
-            owner_name: m.owner_name || "",
-            datasets: (m.datasets || []).map((d) => ({
-              id: d.id,
-              name: d.name,
-              description: d.description || "",
-              file_count: d.file_count,
-              total_size_mb: d.total_size_mb,
-              accepted_types: d.accepted_types || [],
-              sample_files: [],
-              created_at: d.created_at,
-            })),
-            accepted_types: m.accepted_types || [],
-            target_contributions: m.target_contributions,
-            current_contributions: m.current_contributions,
-            contributors: (m.contributors || []).map((c) => ({
-              user_id: c.user_id,
-              user_name: c.user_name,
-              role: c.role as Role,
-              approved_count: c.approved_count,
-              total_count: c.total_count,
-            })),
-            created_at: m.created_at,
-            model_available: m.model_available,
-            configuredTasks: m.configured_tasks as MissionTaskConfig[] | undefined,
-          }));
-          setMissions(mapped);
-        }
-      })
-      .catch(() => {
-        // Keep seed data as fallback
-      });
-
-    apiGetLeaderboard()
-      .then((res) => {
-        if (res.entries.length > 0) setLeaderboard(res.entries);
-      })
-      .catch(() => {});
+  // ─── Data loading ─────────────────────────────────────────────────
+  const refreshMissions = useCallback(async () => {
+    try {
+      const res = await apiGetMissions({ limit: 100 });
+      if (res.missions.length > 0) {
+        setMissions((prev) => {
+          // Merge: keep existing files data for missions we already have
+          const prevMap = new Map(prev.map((m) => [m.id, m]));
+          return res.missions.map((apiM) => {
+            const mapped = mapMission(apiM);
+            const existing = prevMap.get(mapped.id);
+            if (existing) {
+              mapped.datasets = mapped.datasets.map((ds) => {
+                const existingDs = existing.datasets.find((d) => d.id === ds.id);
+                if (existingDs && existingDs.sample_files.length > 0) {
+                  ds.sample_files = existingDs.sample_files;
+                }
+                return ds;
+              });
+            }
+            return mapped;
+          });
+        });
+      }
+    } catch {
+      /* keep current data on network failure */
+    }
   }, []);
 
+  // Fetch initial data from API on mount
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadInitialData() {
+      setLoading(true);
+      try {
+        const [missionsRes, leaderboardRes, modelsRes] = await Promise.allSettled([
+          apiGetMissions({ limit: 100 }),
+          apiGetLeaderboard(),
+          apiGetModels(),
+        ]);
+
+        if (cancelled) return;
+
+        if (missionsRes.status === "fulfilled" && missionsRes.value.missions.length > 0) {
+          setMissions(missionsRes.value.missions.map(mapMission));
+        }
+        if (leaderboardRes.status === "fulfilled" && leaderboardRes.value.entries.length > 0) {
+          setLeaderboard(leaderboardRes.value.entries);
+        }
+        if (modelsRes.status === "fulfilled" && modelsRes.value.models.length > 0) {
+          setModels(modelsRes.value.models.map(mapModel));
+        }
+      } catch {
+        /* keep empty state */
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+
+    loadInitialData();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // ─── Missions ─────────────────────────────────────────────────────
   const addMission = useCallback(
-    (data: {
+    async (data: {
       title: string;
       reason: string;
       description: string;
@@ -300,117 +361,78 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       accepted_types: string[];
       datasets: { name: string; description: string }[];
       configuredTasks: MissionTaskConfig[];
-    }): string => {
-      const missionId = genId("m");
-
-      // Try API first
-      apiCreateMission({
-        title: data.title,
-        description: data.description,
-        reason: data.reason,
-        how_to_contribute: data.how_to_contribute,
-        category: data.category,
-        model_type: data.model_type,
-        goal_count: data.target_contributions,
-        accepted_types: data.accepted_types,
-        configured_tasks: data.configuredTasks,
-        datasets: data.datasets,
-      })
-        .then((res) => {
-          // Replace the optimistic mission with the real one
-          const apiMission: Mission = {
-            id: res.id,
-            title: res.title,
-            reason: res.reason || "",
-            description: res.description,
-            how_to_contribute: res.how_to_contribute || "",
-            category: res.category || "",
-            model_type: (res.model_type || "vision") as ModelType,
-            status: res.status as Mission["status"],
-            owner_id: res.owner_id || "",
-            owner_name: res.owner_name || "",
-            datasets: (res.datasets || []).map((d) => ({
-              id: d.id,
-              name: d.name,
-              description: d.description || "",
-              file_count: d.file_count,
-              total_size_mb: d.total_size_mb,
-              accepted_types: d.accepted_types || [],
-              sample_files: [],
-              created_at: d.created_at,
-            })),
-            accepted_types: res.accepted_types || [],
-            target_contributions: res.target_contributions,
-            current_contributions: res.current_contributions,
-            contributors: (res.contributors || []).map((c) => ({
-              user_id: c.user_id,
-              user_name: c.user_name,
-              role: c.role as Role,
-              approved_count: c.approved_count,
-              total_count: c.total_count,
-            })),
-            created_at: res.created_at,
-            model_available: res.model_available,
-            configuredTasks: res.configured_tasks as MissionTaskConfig[] | undefined,
-          };
-          setMissions((prev) =>
-            prev.map((m) => (m.id === missionId ? apiMission : m)),
-          );
-        })
-        .catch(() => {
-          // Keep optimistic local mission
-        });
-
-      // Optimistic local insert
-      const newMission: Mission = {
-        id: missionId,
-        title: data.title,
-        reason: data.reason,
-        description: data.description,
-        how_to_contribute: data.how_to_contribute,
-        category: data.category,
-        model_type: data.model_type,
-        status: "active",
-        owner_id: user?.id ?? "u1",
-        owner_name: user?.name ?? "Unknown",
-        datasets: data.datasets.map((ds) => ({
-          id: genId("d"),
-          name: ds.name,
-          description: ds.description,
-          file_count: 0,
-          total_size_mb: 0,
+    }): Promise<string> => {
+      try {
+        const res = await apiCreateMission({
+          title: data.title,
+          description: data.description,
+          reason: data.reason,
+          how_to_contribute: data.how_to_contribute,
+          category: data.category,
+          model_type: data.model_type,
+          goal_count: data.target_contributions,
           accepted_types: data.accepted_types,
-          sample_files: [],
+          configured_tasks: data.configuredTasks,
+          datasets: data.datasets,
+        });
+        const apiMission = mapMission(res);
+        setMissions((prev) => [apiMission, ...prev]);
+        toast.success(`Mission "${data.title}" created!`);
+        return apiMission.id;
+      } catch {
+        // Offline fallback: create locally
+        const missionId = genId("m");
+        const newMission: Mission = {
+          id: missionId,
+          title: data.title,
+          reason: data.reason,
+          description: data.description,
+          how_to_contribute: data.how_to_contribute,
+          category: data.category,
+          model_type: data.model_type,
+          status: "active",
+          owner_id: user?.id ?? "",
+          owner_name: user?.name ?? "Unknown",
+          datasets: data.datasets.map((ds) => ({
+            id: genId("d"),
+            name: ds.name,
+            description: ds.description,
+            file_count: 0,
+            total_size_mb: 0,
+            accepted_types: data.accepted_types,
+            sample_files: [],
+            created_at: new Date().toISOString(),
+          })),
+          accepted_types: data.accepted_types,
+          target_contributions: data.target_contributions,
+          current_contributions: 0,
+          contributors: user
+            ? [
+                {
+                  user_id: user.id,
+                  user_name: user.name,
+                  role: "reviewer" as Role,
+                  approved_count: 0,
+                  total_count: 0,
+                },
+              ]
+            : [],
           created_at: new Date().toISOString(),
-        })),
-        accepted_types: data.accepted_types,
-        target_contributions: data.target_contributions,
-        current_contributions: 0,
-        contributors: [
-          {
-            user_id: user?.id ?? "u1",
-            user_name: user?.name ?? "Unknown",
-            role: "reviewer" as Role,
-            approved_count: 0,
-            total_count: 0,
-          },
-        ],
-        created_at: new Date().toISOString(),
-        model_available: false,
-        configuredTasks: data.configuredTasks,
-      };
-      setMissions((prev) => [newMission, ...prev]);
-      toast.success(`Mission "${data.title}" created!`);
-      return missionId;
+          model_available: false,
+          configuredTasks: data.configuredTasks,
+        };
+        setMissions((prev) => [newMission, ...prev]);
+        toast.success(`Mission "${data.title}" created! (offline mode)`);
+        return missionId;
+      }
     },
     [user],
   );
 
   const joinMission = useCallback(
-    (missionId: string, role: Role) => {
+    (missionId: string) => {
       if (!user) return;
-      // API call (fire & forget with fallback)
-      apiJoinMission(missionId, role).catch(() => {});
+      apiJoinMission(missionId, "contributor").catch(() => {});
       setMissions((prev) =>
         prev.map((m) => {
           if (m.id !== missionId) return m;
@@ -422,7 +444,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
               {
                 user_id: user.id,
                 user_name: user.name,
-                role,
+                role: "contributor" as Role,
                 approved_count: 0,
                 total_count: 0,
               },
@@ -430,86 +452,80 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           };
         }),
       );
-      toast.success(`Joined mission as ${role}`);
+      toast.success("Joined mission!");
     },
     [user],
   );
 
-  // ─── File upload ──────────────────────────────────────────────────
+  // ─── File upload — calls the real API ─────────────────────────────
   const uploadFiles = useCallback(
-    (
-      missionId: string,
-      datasetId: string,
-      files: { name: string; size: number; type: string }[],
-    ) => {
+    async (missionId: string, datasetId: string, files: File[]) => {
       if (!user) return;
-      const newFiles: DataFile[] = files.map((f) => ({
-        id: genId("f"),
-        filename: f.name,
-        size_kb: Math.round(f.size / 1024),
-        type: f.name.substring(f.name.lastIndexOf(".")),
-        status: "pending" as const,
-        contributor_id: user.id,
-        contributor_name: user.name,
-        uploaded_at: new Date().toISOString(),
-      }));
+      try {
+        const res = await apiUploadFilesRaw(missionId, datasetId, files);
+        const newFiles: DataFile[] = res.files.map((f) => ({
+          id: f.id,
+          filename: f.filename,
+          size_kb: f.size_kb,
+          type: f.filename.substring(f.filename.lastIndexOf(".")),
+          status: f.status.toLowerCase() as DataFile["status"],
+          contributor_id: user.id,
+          contributor_name: user.name,
+          uploaded_at: new Date().toISOString(),
+        }));
 
-      setMissions((prev) =>
-        prev.map((m) => {
-          if (m.id !== missionId) return m;
-          const updatedDatasets = m.datasets.map((ds) => {
-            if (ds.id !== datasetId) return ds;
-            return {
-              ...ds,
-              sample_files: [...ds.sample_files, ...newFiles],
-              file_count: ds.file_count + newFiles.length,
-              total_size_mb:
-                ds.total_size_mb +
-                newFiles.reduce((s, f) => s + f.size_kb, 0) / 1024,
-            };
-          });
-          // Also add user as contributor if not already
-          let contributors = m.contributors;
-          if (!contributors.some((c) => c.user_id === user.id)) {
-            contributors = [
-              ...contributors,
-              {
-                user_id: user.id,
-                user_name: user.name,
-                role: "contributor" as Role,
-                approved_count: 0,
-                total_count: 0,
-              },
-            ];
-          }
-          // Bump contributor total_count
-          contributors = contributors.map((c) =>
-            c.user_id === user.id
-              ? { ...c, total_count: c.total_count + newFiles.length }
-              : c,
-          );
-          return {
-            ...m,
-            datasets: updatedDatasets,
-            current_contributions: m.current_contributions + newFiles.length,
-            contributors,
-          };
-        }),
-      );
-
-      // Update user stats
-      setUser((prev) =>
-        prev
-          ? {
-              ...prev,
-              total_contributions: prev.total_contributions + files.length,
+        setMissions((prev) =>
+          prev.map((m) => {
+            if (m.id !== missionId) return m;
+            const updatedDatasets = m.datasets.map((ds) => {
+              if (ds.id !== datasetId) return ds;
+              return {
+                ...ds,
+                sample_files: [...ds.sample_files, ...newFiles],
+                file_count: ds.file_count + newFiles.length,
+                total_size_mb:
+                  ds.total_size_mb +
+                  newFiles.reduce((s, f) => s + f.size_kb, 0) / 1024,
+              };
+            });
+            let contributors = m.contributors;
+            if (!contributors.some((c) => c.user_id === user.id)) {
+              contributors = [
+                ...contributors,
+                {
+                  user_id: user.id,
+                  user_name: user.name,
+                  role: "contributor" as Role,
+                  approved_count: 0,
+                  total_count: 0,
+                },
+              ];
             }
-          : prev,
-      );
+            contributors = contributors.map((c) =>
+              c.user_id === user.id
+                ? { ...c, total_count: c.total_count + newFiles.length }
+                : c,
+            );
+            return {
+              ...m,
+              datasets: updatedDatasets,
+              current_contributions: m.current_contributions + newFiles.length,
+              contributors,
+            };
+          }),
+        );
 
-      toast.success(
-        `${files.length} file${files.length > 1 ? "s" : ""} uploaded!`,
-      );
+        setUser((prev) =>
+          prev
+            ? { ...prev, total_contributions: prev.total_contributions + files.length }
+            : prev,
+        );
+
+        toast.success(`${files.length} file${files.length > 1 ? "s" : ""} uploaded!`);
+      } catch (err) {
+        const msg = err instanceof ApiError ? err.message : "Upload failed";
+        toast.error(msg);
+      }
     },
     [user],
   );
@@ -518,7 +534,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const addAnnotation = useCallback(
     (missionId: string, fileId: string, label: string, notes: string) => {
       if (!user) return;
-      // API call (fire & forget)
+      // Auto-join mission if not already a member
+      const mission = missions.find((m) => m.id === missionId);
+      if (mission && !mission.contributors.some((c) => c.user_id === user.id)) {
+        joinMission(missionId);
+      }
       apiAnnotateFile(missionId, fileId, label, notes).catch(() => {});
       const ann: Annotation = {
         id: genId("a"),
@@ -540,7 +560,6 @@ export function StoreProvider({ children }: { children: ReactNode }) {
                 return {
                   ...f,
                   annotations: [...(f.annotations ?? []), ann],
-                  // After annotation → queue for annotation review
                   status:
                     f.status === "needs_annotation"
                       ? ("pending_review" as const)
@@ -551,24 +570,26 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           };
         }),
       );
-      // Update user annotation count
-      setUser((prev) =>
-        prev ? { ...prev, annotations: prev.annotations + 1 } : prev,
-      );
+      setUser((prev) => (prev ? { ...prev, annotations: prev.annotations + 1 } : prev));
       toast.success("Annotation saved!");
     },
-    [user],
+    [user, missions, joinMission],
   );
 
   // ─── Full annotation workspace save ───────────────────────────────
   const saveAnnotationResponses = useCallback(
-    (
-      missionId: string,
-      fileId: string,
-      responses: Record<string, unknown>,
-    ) => {
+    (missionId: string, fileId: string, responses: Record<string, unknown>) => {
       if (!user) return;
-      // Store the responses
+      // Auto-join mission if not already a member
+      const mission = missions.find((m) => m.id === missionId);
+      if (mission && !mission.contributors.some((c) => c.user_id === user.id)) {
+        joinMission(missionId);
+      }
+      // Persist via API
+      const label = `Annotated (${Object.keys(responses).length} tasks)`;
+      apiAnnotateFile(missionId, fileId, label, JSON.stringify(responses)).catch(() => {});
+
+      // Store locally
       setAnnotationResponses((prev) => ({
         ...prev,
         [missionId]: {
@@ -577,7 +598,6 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         },
       }));
 
-      // Mark the file as pending review
       setMissions((prev) =>
         prev.map((m) => {
           if (m.id !== missionId) return m;
@@ -589,7 +609,6 @@ export function StoreProvider({ children }: { children: ReactNode }) {
                 if (f.id !== fileId) return f;
                 return {
                   ...f,
-                  // After annotation → queue for annotation review
                   status:
                     f.status === "needs_annotation"
                       ? ("pending_review" as const)
@@ -600,7 +619,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
                       id: genId("a"),
                       annotator_id: user.id,
                       annotator_name: user.name,
-                      label: `Annotated (${Object.keys(responses).length} tasks)`,
+                      label,
                       notes: "Via annotation workspace",
                       created_at: new Date().toISOString(),
                     },
@@ -612,35 +631,26 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         }),
       );
 
-      setUser((prev) =>
-        prev ? { ...prev, annotations: prev.annotations + 1 } : prev,
-      );
+      setUser((prev) => (prev ? { ...prev, annotations: prev.annotations + 1 } : prev));
     },
-    [user],
+    [user, missions, joinMission],
   );
 
   // ─── Review ───────────────────────────────────────────────────────
-  // Pipeline: pending (upload) → needs_annotation → pending_review (annotated) → approved
   const approveFile = useCallback(
     (missionId: string, fileId: string, _note?: string) => {
       if (!user) return;
-      // API call (fire & forget)
       apiReviewFile(missionId, fileId, "approve").catch(() => {});
       setMissions((prev) =>
         prev.map((m) => {
           if (m.id !== missionId) return m;
-          // Find the file to determine its current status
           const file = m.datasets
             .flatMap((d) => d.sample_files)
             .find((ff) => ff.id === fileId);
           if (!file) return m;
 
-          // Determine next status based on pipeline stage
           const nextStatus: DataFile["status"] =
-            file.status === "pending"
-              ? "needs_annotation"    // Upload approved → queue for annotation
-              : "approved";           // Annotation approved → integrated
-
+            file.status === "pending" ? "needs_annotation" : "approved";
           const isIntegrated = nextStatus === "approved";
 
           return {
@@ -651,32 +661,29 @@ export function StoreProvider({ children }: { children: ReactNode }) {
                 f.id === fileId ? { ...f, status: nextStatus } : f,
               ),
             })),
-            // Only bump approved_count when fully integrated
             contributors: isIntegrated
-              ? m.contributors.map((c) => {
-                  if (c.user_id === file.contributor_id) {
-                    return { ...c, approved_count: c.approved_count + 1 };
-                  }
-                  return c;
-                })
+              ? m.contributors.map((c) =>
+                  c.user_id === file.contributor_id
+                    ? { ...c, approved_count: c.approved_count + 1 }
+                    : c,
+                )
               : m.contributors,
           };
         }),
       );
-      setUser((prev) =>
-        prev ? { ...prev, reviews: prev.reviews + 1 } : prev,
-      );
-      // Update leaderboard
+      setUser((prev) => (prev ? { ...prev, reviews: prev.reviews + 1 } : prev));
       if (user) {
         setLeaderboard((prev) =>
-          prev.map((e) =>
-            e.user_id === user.id
-              ? { ...e, reviews: e.reviews + 1, score: e.score + 5 }
-              : e,
-          ).sort((a, b) => b.score - a.score).map((e, i) => ({ ...e, rank: i + 1 })),
+          prev
+            .map((e) =>
+              e.user_id === user.id
+                ? { ...e, reviews: e.reviews + 1, score: e.score + 5 }
+                : e,
+            )
+            .sort((a, b) => b.score - a.score)
+            .map((e, i) => ({ ...e, rank: i + 1 })),
         );
       }
-      // Find file to get context-aware toast
       const fileForToast = missions
         .find((m) => m.id === missionId)
         ?.datasets.flatMap((d) => d.sample_files)
@@ -684,7 +691,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       if (fileForToast?.status === "pending") {
         toast.success("Upload approved!", { description: "File queued for annotation" });
       } else {
-        toast.success("Annotation approved!", { description: "File integrated into dataset" });
+        toast.success("Annotation approved!", {
+          description: "File integrated into dataset",
+        });
       }
     },
     [user, missions],
@@ -693,7 +702,6 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const rejectFile = useCallback(
     (missionId: string, fileId: string, _note?: string) => {
       if (!user) return;
-      // API call (fire & forget)
       apiReviewFile(missionId, fileId, "reject").catch(() => {});
       setMissions((prev) =>
         prev.map((m) => {
@@ -703,11 +711,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             .find((ff) => ff.id === fileId);
           if (!file) return m;
 
-          // Determine next status based on pipeline stage
           const nextStatus: DataFile["status"] =
-            file.status === "pending"
-              ? "rejected"             // Upload rejected → rejected
-              : "needs_annotation";    // Annotation rejected → re-queue for annotation
+            file.status === "pending" ? "rejected" : "needs_annotation";
 
           return {
             ...m,
@@ -720,10 +725,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           };
         }),
       );
-      setUser((prev) =>
-        prev ? { ...prev, reviews: prev.reviews + 1 } : prev,
-      );
-      // Context-aware toast
+      setUser((prev) => (prev ? { ...prev, reviews: prev.reviews + 1 } : prev));
       const fileForToast = missions
         .find((m) => m.id === missionId)
         ?.datasets.flatMap((d) => d.sample_files)
@@ -731,7 +733,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       if (fileForToast?.status === "pending") {
         toast("Upload rejected", { description: _note || undefined });
       } else {
-        toast("Annotation sent back", { description: _note || "Queued for re-annotation" });
+        toast("Annotation sent back", {
+          description: _note || "Queued for re-annotation",
+        });
       }
     },
     [user, missions],
@@ -740,7 +744,6 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   // ─── Task management (reviewer) ───────────────────────────────────
   const updateMissionTasks = useCallback(
     (missionId: string, tasks: MissionTaskConfig[]) => {
-      // API call (fire & forget)
       apiUpdateMissionTasks(missionId, tasks).catch(() => {});
       setMissions((prev) =>
         prev.map((m) =>
@@ -769,29 +772,91 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
-  // ─── Derived helpers (stable via useCallback) ─────────────────────
+  // ─── Derived helpers ──────────────────────────────────────────────
   const getMission = useCallback(
     (id: string) => missions.find((m) => m.id === id),
     [missions],
   );
 
-  const getModels = useCallback(
+  /** Fetch a single mission from API if not in local state */
+  const fetchMission = useCallback(
+    async (id: string): Promise<Mission | undefined> => {
+      const local = missions.find((m) => m.id === id);
+      if (local) return local;
+      try {
+        const res = await apiGetMission(id);
+        const mapped = mapMission(res);
+        setMissions((prev) => {
+          if (prev.some((m) => m.id === mapped.id)) return prev;
+          return [...prev, mapped];
+        });
+        return mapped;
+      } catch {
+        return undefined;
+      }
+    },
+    [missions],
+  );
+
+  /** Fetch files for all datasets of a mission from the API */
+  const fetchMissionFiles = useCallback(
+    async (missionId: string): Promise<void> => {
+      const mission = missions.find((m) => m.id === missionId);
+      if (!mission) return;
+
+      try {
+        const results = await Promise.allSettled(
+          mission.datasets.map((ds) => apiGetFiles(missionId, ds.id)),
+        );
+
+        setMissions((prev) =>
+          prev.map((m) => {
+            if (m.id !== missionId) return m;
+            return {
+              ...m,
+              datasets: m.datasets.map((ds, i) => {
+                const result = results[i];
+                if (result.status !== "fulfilled") return ds;
+                const apiFiles = result.value.files;
+                return {
+                  ...ds,
+                  sample_files: apiFiles.map(
+                    (f): DataFile => ({
+                      id: f.id,
+                      filename: f.filename,
+                      size_kb: f.size_kb,
+                      type: f.type,
+                      status: f.status.toLowerCase() as DataFile["status"],
+                      contributor_id: f.contributor_id || "",
+                      contributor_name: f.contributor_name,
+                      uploaded_at: f.uploaded_at,
+                      annotations: f.annotations?.map((a) => ({
+                        id: a.id,
+                        annotator_id: a.annotator_id || "",
+                        annotator_name: a.annotator_name,
+                        label: a.label,
+                        notes: a.notes,
+                        created_at: a.created_at,
+                      })),
+                    }),
+                  ),
+                  file_count: apiFiles.length,
+                };
+              }),
+            };
+          }),
+        );
+      } catch {
+        /* network error — keep existing data */
+      }
+    },
+    [missions],
+  );
+
+  const getModelsForMission = useCallback(
     (missionId: string) => models.filter((m) => m.mission_id === missionId),
     [models],
   );
-
-  const getUserMissions = useCallback((): {
-    mission: Mission;
-    role: Role;
-  }[] => {
-    if (!user) return [];
-    return missions
-      .filter((m) => m.contributors.some((c) => c.user_id === user.id))
-      .map((m) => ({
-        mission: m,
-        role: m.contributors.find((c) => c.user_id === user.id)!.role,
-      }));
-  }, [missions, user]);
 
   const getFilesNeedingAnnotation = useCallback(
     (missionId: string): DataFile[] => {
@@ -808,22 +873,50 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     (missionId: string): Role | undefined => {
       if (!user) return undefined;
       const mission = missions.find((m) => m.id === missionId);
-      return mission?.contributors.find((c) => c.user_id === user.id)?.role;
+      if (!mission) return undefined;
+      const member = mission.contributors.find((c) => c.user_id === user.id);
+      if (!member) return undefined;
+
+      // Owner is always a reviewer
+      if (mission.owner_id === user.id) return "reviewer";
+
+      // Earned role hierarchy: reviewer > annotator > contributor
+      // Backend stores the role set at join time, but we compute the
+      // "earned" role from cumulative activity:
+      //   - Any membership → contributor
+      //   - Has annotations on this mission → annotator
+      //   - Has reviews (approved_count > 5 or is owner) → reviewer
+      // For now, derive from the stored role + approved_count heuristic
+      if (member.approved_count >= 10) return "reviewer";
+      if (member.approved_count >= 3) return "annotator";
+      return "contributor";
     },
     [missions, user],
   );
 
+  const getUserMissions = useCallback((): {
+    mission: Mission;
+    role: Role;
+  }[] => {
+    if (!user) return [];
+    return missions
+      .filter((m) => m.contributors.some((c) => c.user_id === user.id))
+      .map((m) => ({
+        mission: m,
+        role: getUserRole(m.id) ?? "contributor",
+      }));
+  }, [missions, user, getUserRole]);
+
   // ─── Context value ────────────────────────────────────────────────
   const store: Store = {
-    // State
     isAuthenticated,
     user,
     missions,
     leaderboard,
     models,
     likedMissions,
+    loading,
     annotationResponses,
-    // Actions
     login,
     signup,
     logout,
@@ -836,17 +929,17 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     rejectFile,
     updateMissionTasks,
     toggleLike,
-    // Helpers
     getMission,
-    getModels,
+    fetchMission,
+    fetchMissionFiles,
+    getModels: getModelsForMission,
     getUserMissions,
     getFilesNeedingAnnotation,
     getUserRole,
+    refreshMissions,
   };
 
-  return (
-    <StoreContext.Provider value={store}>{children}</StoreContext.Provider>
-  );
+  return <StoreContext.Provider value={store}>{children}</StoreContext.Provider>;
 }
 
 // ─── Hook ───────────────────────────────────────────────────────────

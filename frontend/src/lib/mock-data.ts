@@ -826,22 +826,22 @@ export function getMissionById(id: string): Mission | undefined {
 export function getRoleLabel(role: Role): string {
   switch (role) {
     case "contributor":
-      return "Contributor";
+      return "Member";
     case "annotator":
-      return "Data Annotator";
+      return "Annotator";
     case "reviewer":
-      return "Reviewer / Manager";
+      return "Reviewer";
   }
 }
 
 export function getRoleDescription(role: Role): string {
   switch (role) {
     case "contributor":
-      return "Upload data files to missions. No technical skills required.";
+      return "Upload data files to missions. Everyone starts here!";
     case "annotator":
-      return "Label and annotate contributed data to build high-quality datasets.";
+      return "Earned by contributing and having data approved. Can annotate data.";
     case "reviewer":
-      return "Review submissions, manage datasets, and approve contributions.";
+      return "Earned through significant contributions. Can review and approve submissions.";
   }
 }
 

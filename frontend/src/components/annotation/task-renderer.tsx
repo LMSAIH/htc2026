@@ -324,11 +324,11 @@ function RadioGroup({
 }) {
   return (
     <div className="space-y-2">
-      {labels.map((opt) => {
+      {labels.map((opt, idx) => {
         const selected = value === opt.id;
         return (
           <button
-            key={opt.id}
+            key={opt.id ?? `radio-${idx}`}
             onClick={() => onChange(opt.id)}
             className={`w-full text-left rounded-lg border p-3 transition-all ${
               selected
@@ -386,11 +386,11 @@ function CheckboxGroup({
 }) {
   return (
     <div className="space-y-2">
-      {labels.map((opt) => {
+      {labels.map((opt, idx) => {
         const checked = value.includes(opt.id);
         return (
           <button
-            key={opt.id}
+            key={opt.id ?? `cb-${idx}`}
             onClick={() => {
               const newVal = checked
                 ? value.filter((v) => v !== opt.id)

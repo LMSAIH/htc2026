@@ -50,6 +50,14 @@ export function ReviewTab({
   const [reviewAction, setReviewAction] = useState<"approve" | "reject" | null>(null);
   const [reviewNote, setReviewNote] = useState("");
   const [showTaskManager, setShowTaskManager] = useState(false);
+  const [approveAllTarget, setApproveAllTarget] = useState<"uploads" | "annotations" | null>(null);
+
+  const handleApproveAll = (files: DataFile[]) => {
+    for (const f of files) {
+      store.approveFile(mission.id, f.id);
+    }
+    setApproveAllTarget(null);
+  };
 
   return (
     <>
@@ -174,14 +182,26 @@ export function ReviewTab({
 
         {/* ═══ Upload Review Queue ═══ */}
         <div className="border rounded-xl bg-card overflow-hidden">
-          <div className="px-5 py-4 border-b bg-muted/20">
-            <div className="flex items-center gap-2">
-              <Upload className="h-4 w-4 text-yellow-600" />
-              <h3 className="font-semibold text-[15px]">Upload Review</h3>
+          <div className="px-5 py-4 border-b bg-muted/20 flex items-center justify-between">
+            <div>
+              <div className="flex items-center gap-2">
+                <Upload className="h-4 w-4 text-yellow-600" />
+                <h3 className="font-semibold text-[15px]">Upload Review</h3>
+              </div>
+              <p className="text-[13px] text-muted-foreground mt-0.5">
+                {uploadQueue.length} upload{uploadQueue.length !== 1 ? "s" : ""} awaiting approval before annotation can begin.
+              </p>
             </div>
-            <p className="text-[13px] text-muted-foreground mt-0.5">
-              {uploadQueue.length} upload{uploadQueue.length !== 1 ? "s" : ""} awaiting approval before annotation can begin.
-            </p>
+            {uploadQueue.length > 1 && (
+              <Button
+                size="sm"
+                variant="outline"
+                className="gap-1.5 text-xs text-green-600 border-green-300 hover:bg-green-50 dark:hover:bg-green-950/30 shrink-0"
+                onClick={() => setApproveAllTarget("uploads")}
+              >
+                <CheckCircle2 className="h-3.5 w-3.5" /> Approve All ({uploadQueue.length})
+              </Button>
+            )}
           </div>
           {uploadQueue.length === 0 ? (
             <div className="px-5 py-8 text-center text-muted-foreground">
@@ -225,14 +245,26 @@ export function ReviewTab({
 
         {/* ═══ Annotation Review Queue ═══ */}
         <div className="border rounded-xl bg-card overflow-hidden">
-          <div className="px-5 py-4 border-b bg-muted/20">
-            <div className="flex items-center gap-2">
-              <Pencil className="h-4 w-4 text-violet-600" />
-              <h3 className="font-semibold text-[15px]">Annotation Review</h3>
+          <div className="px-5 py-4 border-b bg-muted/20 flex items-center justify-between">
+            <div>
+              <div className="flex items-center gap-2">
+                <Pencil className="h-4 w-4 text-violet-600" />
+                <h3 className="font-semibold text-[15px]">Annotation Review</h3>
+              </div>
+              <p className="text-[13px] text-muted-foreground mt-0.5">
+                {reviewQueue.length} annotated file{reviewQueue.length !== 1 ? "s" : ""} awaiting review before integration.
+              </p>
             </div>
-            <p className="text-[13px] text-muted-foreground mt-0.5">
-              {reviewQueue.length} annotated file{reviewQueue.length !== 1 ? "s" : ""} awaiting review before integration.
-            </p>
+            {reviewQueue.length > 1 && (
+              <Button
+                size="sm"
+                variant="outline"
+                className="gap-1.5 text-xs text-green-600 border-green-300 hover:bg-green-50 dark:hover:bg-green-950/30 shrink-0"
+                onClick={() => setApproveAllTarget("annotations")}
+              >
+                <CheckCircle2 className="h-3.5 w-3.5" /> Integrate All ({reviewQueue.length})
+              </Button>
+            )}
           </div>
           {reviewQueue.length === 0 ? (
             <div className="px-5 py-8 text-center text-muted-foreground">
@@ -343,6 +375,34 @@ export function ReviewTab({
               {reviewAction === "approve"
                 ? reviewFile?.status === "pending_review" ? "Integrate" : "Approve"
                 : reviewFile?.status === "pending_review" ? "Send Back" : "Reject"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Approve All Confirmation Dialog */}
+      <Dialog open={!!approveAllTarget} onOpenChange={() => setApproveAllTarget(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              {approveAllTarget === "uploads"
+                ? `Approve all ${uploadQueue.length} uploads?`
+                : `Integrate all ${reviewQueue.length} annotations?`}
+            </DialogTitle>
+            <DialogDescription>
+              {approveAllTarget === "uploads"
+                ? `This will approve ${uploadQueue.length} pending upload${uploadQueue.length !== 1 ? "s" : ""} and queue them for annotation.`
+                : `This will integrate ${reviewQueue.length} annotated file${reviewQueue.length !== 1 ? "s" : ""} into the final dataset.`}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setApproveAllTarget(null)}>Cancel</Button>
+            <Button
+              onClick={() => handleApproveAll(approveAllTarget === "uploads" ? uploadQueue : reviewQueue)}
+              className="gap-1.5"
+            >
+              <CheckCircle2 className="h-3.5 w-3.5" />
+              {approveAllTarget === "uploads" ? "Approve All" : "Integrate All"}
             </Button>
           </DialogFooter>
         </DialogContent>

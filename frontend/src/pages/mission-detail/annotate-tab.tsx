@@ -28,12 +28,12 @@ import { useStore } from "@/lib/store";
 
 interface AnnotateTabProps {
   mission: Mission;
-  userRole: string;
+  isMissionOwner?: boolean;
   needsAnnotation: DataFile[];
   allFiles: DataFile[];
 }
 
-export function AnnotateTab({ mission, userRole, needsAnnotation, allFiles }: AnnotateTabProps) {
+export function AnnotateTab({ mission, isMissionOwner, needsAnnotation, allFiles }: AnnotateTabProps) {
   const store = useStore();
   const [annotateFile, setAnnotateFile] = useState<DataFile | null>(null);
   const [annotationLabel, setAnnotationLabel] = useState("");
@@ -101,9 +101,9 @@ export function AnnotateTab({ mission, userRole, needsAnnotation, allFiles }: An
             <div className="border rounded-xl bg-card p-6 text-center text-muted-foreground">
               <p className="text-[14px] font-medium">No annotation tasks configured</p>
               <p className="text-[13px] mt-1">
-                {userRole === "reviewer"
+                {isMissionOwner
                   ? "Set up annotation tasks in the Review tab to enable the annotation workflow."
-                  : "The mission reviewer hasn't configured annotation tasks yet."}
+                  : "The mission owner hasn't configured annotation tasks yet."}
               </p>
             </div>
           );

@@ -34,22 +34,16 @@ export function ContributeTab({ mission }: ContributeTabProps) {
     [mission],
   );
 
-  const handleUpload = () => {
+  const handleUpload = async () => {
     if (uploadFiles.length === 0) return;
     setUploading(true);
     const targetDataset = mission.datasets[0];
     if (!targetDataset) return;
-    setTimeout(() => {
-      store.uploadFiles(
-        mission.id,
-        targetDataset.id,
-        uploadFiles.map((f) => ({ name: f.name, size: f.size, type: f.type })),
-      );
-      setUploading(false);
-      setUploadDone(true);
-      setUploadFiles([]);
-      setTimeout(() => setUploadDone(false), 4000);
-    }, 800);
+    await store.uploadFiles(mission.id, targetDataset.id, uploadFiles);
+    setUploading(false);
+    setUploadDone(true);
+    setUploadFiles([]);
+    setTimeout(() => setUploadDone(false), 4000);
   };
 
   return (

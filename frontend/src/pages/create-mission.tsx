@@ -164,11 +164,11 @@ export default function CreateMissionPage() {
     acceptedTypes.length > 0 &&
     datasets[0].name.trim();
 
-  const handleCreate = () => {
+  const handleCreate = async () => {
     if (!isValid) return;
     setCreating(true);
-    setTimeout(() => {
-      const missionId = addMission({
+    try {
+      const missionId = await addMission({
         title,
         reason,
         description,
@@ -186,7 +186,10 @@ export default function CreateMissionPage() {
       setCreating(false);
       setDone(true);
       setTimeout(() => navigate(`/app/missions/${missionId}`), 2000);
-    }, 800);
+    } catch (err) {
+      console.error("Failed to create mission:", err);
+      setCreating(false);
+    }
   };
 
   if (done) {

@@ -192,7 +192,7 @@ export default function MissionDetailPage() {
                 <span className="text-xl">
                   {CATEGORY_EMOJI[mission.category] ?? "📁"}
                 </span>
-                <h1 className="text-xl font-bold tracking-tight">{mission.title}</h1>
+                <h1 className="font-mission-title tracking-tight">{mission.title}</h1>
                 {mission.status === "completed" ? (
                   <Badge variant="outline" className="text-green-600 border-green-300 text-[11px]">
                     Complete

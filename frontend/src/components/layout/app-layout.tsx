@@ -1,6 +1,5 @@
 import { Link, useLocation } from "react-router-dom";
 import {
-  Database,
   Rocket,
   FolderOpen,
   Trophy,
@@ -60,7 +59,7 @@ export function AppLayout() {
             to="/"
             className="flex items-center gap-2 px-2 py-1.5 font-bold text-lg tracking-tight"
           >
-            <Database className="h-5 w-5 text-primary" />
+            <img src="/logo.png" alt="" className="h-5 w-5 object-contain" aria-hidden />
             <span>
               Data<span className="text-primary">ForAll</span>
             </span>

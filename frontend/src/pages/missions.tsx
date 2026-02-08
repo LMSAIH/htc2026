@@ -61,7 +61,7 @@ export default function MissionsPage() {
       {/* ─── Header ─── */}
       <div className="flex items-start justify-between gap-4">
         <div className="space-y-1">
-          <h1 className="text-2xl font-bold tracking-tight">Missions</h1>
+          <h1 className="font-display text-2xl font-semibold tracking-tight">Missions</h1>
           <p className="text-muted-foreground text-[15px]">
             Community data collection campaigns. Pick one and start contributing
             — no technical skills required.
@@ -166,7 +166,7 @@ export default function MissionsPage() {
               {/* Center — Info */}
               <div className="flex-1 min-w-0 space-y-1.5">
                 <div className="flex items-center gap-2 flex-wrap">
-                  <span className="font-semibold text-[15px] group-hover:text-primary transition-colors truncate">
+                  <span className="font-display font-semibold text-[15px] group-hover:text-primary transition-colors truncate">
                     {mission.title}
                   </span>
                   {mission.status === "completed" && (

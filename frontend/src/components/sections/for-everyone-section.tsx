@@ -264,7 +264,10 @@ export function ForEveryoneSection() {
                     <h3 className="font-display text-3xl font-semibold tracking-tight sm:text-4xl lg:text-5xl">
                       {role.title}
                     </h3>
-                    <p className="mt-6 max-w-xl text-xl leading-relaxed text-muted-foreground">
+                    <p className={cn(
+                      "mt-6 max-w-xl text-xl leading-relaxed",
+                      role.id === 'technical' ? 'text-white/60' : 'text-muted-foreground'
+                    )}>
                       {role.body}
                     </p>
 

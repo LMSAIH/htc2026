@@ -1,4 +1,4 @@
-import { useRef } from "react";
+import { useRef, useState, useEffect } from "react";
 import { User, Upload, ShieldCheck, Database, Cpu } from "lucide-react";
 import { BentoCard } from "@/components/magicui/bento-grid";
 import { AnimatedBeam } from "@/components/magicui/animated-beam";
@@ -27,7 +27,7 @@ function DataFlowBeam() {
       ref={containerRef}
       className="relative flex h-full w-full items-center justify-between px-6 py-8"
     >
-      {steps.map((s, i) => {
+      {steps.map((s) => {
         const Icon = s.icon;
         return (
           <div key={s.label} className="z-10 flex flex-col items-center gap-1.5">
@@ -36,7 +36,7 @@ function DataFlowBeam() {
               className={
                 s.accent
                   ? "flex size-10 items-center justify-center rounded-xl border border-primary/40 bg-primary/5 shadow-sm"
-                  : "flex size-10 items-center justify-center rounded-xl border border-border/60 bg-background"
+                  : "flex size-10 items-center justify-center rounded-xl border border-border/60 bg-background dark:bg-muted/30"
               }
             >
               <Icon
@@ -110,21 +110,44 @@ function DataFlowBeam() {
   );
 }
 
-/* ── Clean outlined Globe ── */
-const globeConfig: GlobeConfig = {
+/* ── Clean outlined Globe — theme-aware ── */
+const globeConfigLight: GlobeConfig = {
   pointSize: 4,
-  globeColor: "#ffffff",
+  globeColor: "#f8fafc",
   showAtmosphere: false,
   atmosphereColor: "#ffffff",
   atmosphereAltitude: 0.1,
   emissive: "#ffffff",
-  emissiveIntensity: 0.3,
+  emissiveIntensity: 0.15,
   shininess: 0.1,
-  polygonColor: "rgba(203,213,225,0.25)",
+  polygonColor: "rgba(203,213,225,0.3)",
   ambientLight: "#ffffff",
   directionalLeftLight: "#ffffff",
   directionalTopLight: "#ffffff",
   pointLight: "#ffffff",
+  arcTime: 800,
+  arcLength: 0.6,
+  rings: 1,
+  maxRings: 3,
+  initialPosition: { lat: 22, lng: 60 },
+  autoRotate: true,
+  autoRotateSpeed: 0.4,
+};
+
+const globeConfigDark: GlobeConfig = {
+  pointSize: 4,
+  globeColor: "#0C1631",
+  showAtmosphere: true,
+  atmosphereColor: "#2563EB",
+  atmosphereAltitude: 0.12,
+  emissive: "#0C1631",
+  emissiveIntensity: 0.2,
+  shininess: 0.15,
+  polygonColor: "rgba(37,99,235,0.18)",
+  ambientLight: "#93c5fd",
+  directionalLeftLight: "#60a5fa",
+  directionalTopLight: "#93c5fd",
+  pointLight: "#2563EB",
   arcTime: 800,
   arcLength: 0.6,
   rings: 1,
@@ -148,9 +171,26 @@ const sampleArcs = [
 ];
 
 function GitHubGlobeBackground() {
+  const [isDark, setIsDark] = useState(false);
+
+  useEffect(() => {
+    const update = () =>
+      setIsDark(document.documentElement.classList.contains("dark"));
+    update();
+    const obs = new MutationObserver(update);
+    obs.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["class"],
+    });
+    return () => obs.disconnect();
+  }, []);
+
   return (
-    <div className="absolute -right-20 -bottom-16 h-[420px] w-[420px] overflow-hidden opacity-50">
-      <World globeConfig={globeConfig} data={sampleArcs} />
+    <div className="absolute -right-20 -bottom-16 h-[420px] w-[420px] overflow-hidden opacity-50 dark:opacity-70">
+      <World
+        globeConfig={isDark ? globeConfigDark : globeConfigLight}
+        data={sampleArcs}
+      />
     </div>
   );
 }

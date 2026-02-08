@@ -1179,7 +1179,7 @@ export default function MissionDetailPage() {
 import { useMemo } from "react";
 import type { Mission } from "@/lib/mock-data";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { getTemplate, TASK_TEMPLATES } from "@/lib/annotation-tasks";
+import { getTemplate } from "@/lib/annotation-tasks";
 import { TaskConfigEditor } from "@/components/annotation/task-config-editor";
 
 function TaskManagerDialog({

@@ -164,8 +164,6 @@ export default function CreateMissionPage() {
     acceptedTypes.length > 0 &&
     datasets[0].name.trim();
 
-  const [createdId, setCreatedId] = useState<string | null>(null);
-
   const handleCreate = () => {
     if (!isValid) return;
     setCreating(true);
@@ -185,7 +183,6 @@ export default function CreateMissionPage() {
           required: false,
         })),
       });
-      setCreatedId(missionId);
       setCreating(false);
       setDone(true);
       setTimeout(() => navigate(`/app/missions/${missionId}`), 2000);

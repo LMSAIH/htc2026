@@ -29,7 +29,6 @@ import {
   resolveAnnotationTemplates,
   MODEL_TYPES,
   type DataFile,
-  type ResolvedMissionTask,
 } from "@/lib/mock-data";
 import {
   TaskRenderer,

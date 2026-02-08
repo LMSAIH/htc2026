@@ -32,9 +32,8 @@ export default function SignupPage() {
     <div className="flex min-h-screen items-center justify-center px-4">
       <Card className="w-full max-w-sm">
         <CardHeader className="text-center">
-          <Link to="/" className="mx-auto mb-2 flex items-center gap-2 font-bold text-xl">
-            <Database className="h-5 w-5 text-primary" />
-            DataForAll
+          <Link to="/" className="mx-auto mb-4 flex items-center justify-center">
+            <img src="/logo.png" alt="DataForAll" className="h-10 w-auto" />
           </Link>
           <CardTitle className="text-2xl">Create an account</CardTitle>
           <CardDescription>Join the open data community</CardDescription>

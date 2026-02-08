@@ -41,6 +41,10 @@ spec:
               mountPath: /etc/ssl/certs/vultr-db-ca.pem
               subPath: vultr-db-ca.pem
               readOnly: true
+            - name: lambda-ssh-key
+              mountPath: /etc/secrets/lambda-ssh-key
+              subPath: lambda-ssh-key
+              readOnly: true
           readinessProbe:
             httpGet:
               path: /health
@@ -68,3 +72,7 @@ spec:
         - name: db-ca-cert
           configMap:
             name: db-ca-cert
+        - name: lambda-ssh-key
+          secret:
+            secretName: lambda-ssh-key
+            defaultMode: 0400

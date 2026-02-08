@@ -23,7 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import AsyncSessionLocal as async_session_maker
 from app.core.config import get_settings
 from app.models.training_job import TrainingJob, TrainingJobStatus
-from app.services import lambda_gpu
+from app.services import vultr_gpu
 
 logger = logging.getLogger(__name__)
 
@@ -95,7 +95,7 @@ async def _provision_and_monitor(job_id: uuid.UUID) -> None:
 
             settings = get_settings()
 
-            instance_data = await lambda_gpu.create_gpu_instance(
+            instance_data = await vultr_gpu.create_gpu_instance(
                 label=f"dfa-train-{str(job_id)[:8]}",
                 job_id=str(job_id),
                 base_model=job.base_model,
@@ -141,7 +141,7 @@ async def cleanup_job(job_id: uuid.UUID) -> None:
         job = await _load_job(db, job_id)
         if job and job.vultr_instance_id:
             try:
-                await lambda_gpu.destroy_instance(job.vultr_instance_id)
+                await vultr_gpu.destroy_instance(job.vultr_instance_id)
                 logger.info(
                     "Destroyed GPU instance %s for job %s",
                     job.vultr_instance_id,
@@ -180,7 +180,7 @@ async def cleanup_orphaned_jobs() -> None:
             )
             if job.vultr_instance_id:
                 try:
-                    await lambda_gpu.destroy_instance(job.vultr_instance_id)
+                    await vultr_gpu.destroy_instance(job.vultr_instance_id)
                     logger.info(
                         "Destroyed orphaned GPU instance %s", job.vultr_instance_id
                     )

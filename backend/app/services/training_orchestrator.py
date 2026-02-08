@@ -14,7 +14,7 @@ not in the API process.
 import asyncio
 import logging
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import httpx
 from sqlalchemy import select, func
@@ -161,9 +161,8 @@ async def cleanup_orphaned_jobs() -> None:
     Check for jobs stuck in PROVISIONING status and clean them up.
     Should be called periodically (e.g., via a cron or scheduler).
     """
-    cutoff_time = datetime.now(timezone.utc)
-    cutoff_time = cutoff_time.replace(
-        minute=cutoff_time.minute - ORPHANED_JOB_TIMEOUT_MINUTES
+    cutoff_time = datetime.now(timezone.utc) - timedelta(
+        minutes=ORPHANED_JOB_TIMEOUT_MINUTES
     )
 
     async with async_session_maker() as db:

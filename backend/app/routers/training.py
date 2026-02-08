@@ -3,6 +3,7 @@ Training router — endpoints for launching training jobs, listing them,
 fetching HuggingFace models, and GH200 GPU info.
 """
 
+import asyncio
 import uuid
 from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from sqlalchemy import select, func
@@ -282,6 +283,10 @@ async def callback_complete(
     job.epochs_completed = payload.epochs_completed
 
     await db.flush()
+
+    # Auto-destroy GPU instance to stop billing ($1.99/hr)
+    asyncio.create_task(training_orchestrator.cleanup_job(job_id))
+
     return {"ok": True}
 
 
@@ -308,4 +313,8 @@ async def callback_fail(
     job.error_message = payload.error_message
 
     await db.flush()
+
+    # Auto-destroy GPU instance to stop billing ($1.99/hr)
+    asyncio.create_task(training_orchestrator.cleanup_job(job_id))
+
     return {"ok": True}

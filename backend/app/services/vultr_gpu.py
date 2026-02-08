@@ -8,6 +8,7 @@ and reports back to the API via HTTP callbacks.
 """
 
 import asyncio
+import base64
 import logging
 from typing import Any
 
@@ -144,10 +145,12 @@ async def create_gpu_instance(
         "label": label,
         "tags": ["dataforall", "training"],
         "enable_ipv6": False,
-        "user_data": startup_script,
+        "user_data": base64.b64encode(startup_script.encode()).decode()
+        if startup_script
+        else "",
     }
     if settings.VULTR_SSH_KEY_ID:
-        payload["sshkey_id"] = [settings.VULTR_SSH_KEY_ID]
+        payload["ssh_key_ids"] = [settings.VULTR_SSH_KEY_ID]
 
     async with httpx.AsyncClient(timeout=60) as client:
         resp = await client.post(

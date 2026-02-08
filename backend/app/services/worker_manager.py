@@ -29,6 +29,8 @@ settings = get_settings()
 
 # Consider worker offline if no heartbeat for this long
 WORKER_OFFLINE_TIMEOUT_SECONDS = 120
+# Consider worker stale if it stays in 'starting' status for this long
+WORKER_STARTING_TIMEOUT_SECONDS = 300
 
 
 def _build_persistent_startup_script() -> str:
@@ -155,16 +157,32 @@ async def start_worker() -> dict[str, Any]:
         existing = await _get_active_worker(db)
         if existing:
             # Check heartbeat freshness instead of calling Lambda API (which can be slow)
-            # If worker has sent a heartbeat recently, consider it active
             now = datetime.now(timezone.utc)
             last_seen = (
                 existing.last_seen_at.replace(tzinfo=timezone.utc)
                 if existing.last_seen_at and existing.last_seen_at.tzinfo is None
                 else existing.last_seen_at
             )
-            is_responsive = (
+
+            # Determine if worker is responsive
+            is_responsive = False
+            if (
                 last_seen
                 and (now - last_seen).total_seconds() < WORKER_OFFLINE_TIMEOUT_SECONDS
+            ):
+                is_responsive = True
+
+            # Also check if worker is stuck in 'starting' status for too long
+            created_at_aware = (
+                existing.created_at.replace(tzinfo=timezone.utc)
+                if existing.created_at and existing.created_at.tzinfo is None
+                else existing.created_at
+            )
+            is_stuck_starting = (
+                existing.status == WorkerStatus.starting
+                and created_at_aware
+                and (now - created_at_aware).total_seconds()
+                > WORKER_STARTING_TIMEOUT_SECONDS
             )
 
             if is_responsive and existing.status in (
@@ -176,16 +194,53 @@ async def start_worker() -> dict[str, Any]:
                     f"(status={existing.status.value}, last_seen={last_seen}). "
                     f"Stop it first with POST /api/training/workers/stop"
                 )
+            elif is_stuck_starting:
+                # Worker got stuck during startup - treat as stale
+                stale_instance_id = existing.lambda_instance_id
+                logger.warning(
+                    "Worker %s stuck in 'starting' status for >%ds (created=%s). "
+                    "Terminating old instance and cleaning up.",
+                    existing.id,
+                    WORKER_STARTING_TIMEOUT_SECONDS,
+                    created_at_aware,
+                )
+                try:
+                    await lambda_gpu.destroy_instance(stale_instance_id)
+                    logger.info(
+                        "Terminated stuck Lambda instance %s", stale_instance_id
+                    )
+                except Exception as term_err:
+                    logger.warning(
+                        "Failed to terminate stuck instance %s: %s",
+                        stale_instance_id,
+                        term_err,
+                    )
+                await db.delete(existing)
+                await db.commit()
             else:
                 # Stale worker record - no recent heartbeat
-                # Delete the stale record so we can start fresh
+                # Terminate the old Lambda instance first to avoid duplicates
+                stale_instance_id = existing.lambda_instance_id
                 logger.warning(
-                    "Found stale worker record %s (status=%s, last_seen=%s). "
-                    "Deleting stale record and proceeding with new worker.",
+                    "Found stale worker record %s (status=%s, last_seen=%s, instance=%s). "
+                    "Terminating old instance and cleaning up record.",
                     existing.id,
                     existing.status.value,
                     last_seen,
+                    stale_instance_id,
                 )
+                try:
+                    await lambda_gpu.destroy_instance(stale_instance_id)
+                    logger.info(
+                        "Terminated stale Lambda instance %s", stale_instance_id
+                    )
+                except Exception as term_err:
+                    logger.warning(
+                        "Failed to terminate stale instance %s: %s (may already be terminated)",
+                        stale_instance_id,
+                        term_err,
+                    )
+                # Delete the stale record
                 await db.delete(existing)
                 await db.commit()
 

@@ -7,8 +7,10 @@ from app.models.training_job import TrainingJobStatus, TrainingTask
 
 # ── Request schemas ──────────────────────────────────────────────────────────
 
+
 class TrainJobRequest(BaseModel):
     """Payload for POST /api/training/missions/{mission_id}/train"""
+
     task: TrainingTask
     base_model: str | None = Field(
         default=None,
@@ -24,6 +26,7 @@ class TrainJobRequest(BaseModel):
 
 
 # ── Response schemas ─────────────────────────────────────────────────────────
+
 
 class TrainingJobResponse(BaseModel):
     id: uuid.UUID
@@ -57,8 +60,10 @@ class TrainingJobListResponse(BaseModel):
 
 # ── HuggingFace model info ──────────────────────────────────────────────────
 
+
 class HFModelInfo(BaseModel):
     """Lightweight representation of a HuggingFace Hub model."""
+
     model_id: str
     author: str | None = None
     task: str | None = None
@@ -75,6 +80,7 @@ class HFModelListResponse(BaseModel):
 
 # ── GPU info ─────────────────────────────────────────────────────────────────
 
+
 class GPUInfo(BaseModel):
     name: str
     plan: str
@@ -87,3 +93,29 @@ class GPUInfo(BaseModel):
 class GPUInfoResponse(BaseModel):
     gpu: GPUInfo
     mode: str  # "local" or "vultr"
+
+
+# ── GPU Worker Callback schemas ──────────────────────────────────────────────
+
+
+class CallbackStatusRequest(BaseModel):
+    """Sent by GPU worker after each epoch."""
+
+    status: str
+    epochs_completed: int = Field(ge=0)
+    current_loss: float | None = None
+    current_accuracy: float | None = None
+
+
+class CallbackCompleteRequest(BaseModel):
+    """Sent by GPU worker when training finishes successfully."""
+
+    result_accuracy: float = Field(ge=0.0, le=1.0)
+    result_loss: float = Field(ge=0.0)
+    epochs_completed: int = Field(ge=0)
+
+
+class CallbackFailRequest(BaseModel):
+    """Sent by GPU worker when training fails."""
+
+    error_message: str = Field(max_length=4096)

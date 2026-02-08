@@ -13,3 +13,8 @@ data:
   S3_REGION: "ewr2"
   CORS_ORIGINS: "*"
   DB_CA_CERT_PATH: "/etc/ssl/certs/vultr-db-ca.pem"
+  VULTR_DEFAULT_REGION: "ewr"
+  TRAINING_MODE: "vultr"
+  API_BASE_URL: "https://api.dataforall.xyz"
+  VULTR_REGISTRY_URL: "ewr.vultrcr.com"
+  GPU_WORKER_IMAGE: "ewr.vultrcr.com/dataforall/gpu-worker:latest"

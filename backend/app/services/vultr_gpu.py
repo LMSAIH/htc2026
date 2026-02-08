@@ -2,11 +2,9 @@
 Vultr Cloud GPU service — provision, poll, and destroy NVIDIA GH200 bare-metal
 instances via the Vultr v2 REST API (https://www.vultr.com/api/#tag/baremetal).
 
-Production GPU: NVIDIA GH200 (ARM Neoverse V2 CPU + H100 GPU, 96 GB HBM3).
-Local testing:  NVIDIA RTX 4060 Mobile (8 GB GDDR6) — no Vultr provisioning.
-
-Set TRAINING_MODE=local in .env to run training on the local 4060 Mobile.
-Set TRAINING_MODE=vultr to provision a GH200 on Vultr Cloud.
+GPU Provisioning: Creates a GH200 instance with a cloud-init startup script
+that runs the gpu-worker Docker container. The container handles actual training
+and reports back to the API via HTTP callbacks.
 """
 
 import asyncio
@@ -23,58 +21,122 @@ settings = get_settings()
 
 VULTR_BASE = "https://api.vultr.com/v2"
 
-# ── GPU specifications ───────────────────────────────────────────────────────
 
-GH200_INFO = {
-    "name": "NVIDIA GH200 (Neoverse V2)",
-    "plan": "vcg-a18-16c-128g-3200s-gh200",
-    "hourly_rate_usd": 2.72,
-    "gpu_memory_gb": 96,      # 96 GB HBM3
-    "cpu_memory_gb": 480,     # 480 GB LPDDR5X (ARM Neoverse V2)
-    "description": (
-        "NVIDIA GH200 — H100-class GPU with 96 GB HBM3 + 72-core ARM Neoverse V2 "
-        "CPU with 480 GB LPDDR5X. Production GPU for large model fine-tuning, "
-        "full training runs, and inference."
-    ),
-}
+def _build_startup_script(
+    job_id: str,
+    base_model: str,
+    task: str,
+    max_epochs: int,
+    batch_size: int,
+    learning_rate: float,
+    use_lora: bool,
+    target_accuracy: float | None,
+    api_callback_url: str,
+    callback_secret: str,
+) -> str:
+    """
+    Generate a cloud-init bash script that:
+    1. Docker login to Vultr registry
+    2. Docker pull the gpu-worker image
+    3. Docker run with all job config as environment variables
 
-LOCAL_4060_INFO = {
-    "name": "NVIDIA RTX 4060 Mobile (local)",
-    "plan": "local",
-    "hourly_rate_usd": 0.0,
-    "gpu_memory_gb": 8,       # 8 GB GDDR6
-    "cpu_memory_gb": 0,       # depends on host machine
-    "description": (
-        "NVIDIA RTX 4060 Mobile — 8 GB GDDR6, Ada Lovelace architecture. "
-        "Local testing GPU. Use small batch sizes and LoRA for memory efficiency. "
-        "Not suitable for large models or full fine-tuning."
-    ),
-}
+    The gpu-worker container runs training and reports back via callbacks.
+    """
+    registry_url = settings.VULTR_REGISTRY_URL
+    registry_user = settings.VULTR_REGISTRY_USERNAME
+    registry_pass = settings.VULTR_REGISTRY_PASSWORD
+    image = settings.GPU_WORKER_IMAGE
 
-# Ubuntu 24.04 with CUDA — NVIDIA GPU Cloud image
-VULTR_OS_ID = 2284
+    target_acc_str = f"{target_accuracy}" if target_accuracy else ""
 
+    script = f'''#!/bin/bash
+set -e
 
-def is_local_mode() -> bool:
-    """Check if we're running in local testing mode."""
-    return settings.TRAINING_MODE.lower() == "local"
+# Log startup
+echo "===== DataForAll GPU Worker Starting ====="
+echo "Job ID: {job_id}"
+echo "Base Model: {base_model}"
+echo "Task: {task}"
+echo "Max Epochs: {max_epochs}"
 
+# Wait for Docker to be ready
+echo "Waiting for Docker..."
+while ! docker info >/dev/null 2>&1; do
+    sleep 1
+done
+echo "Docker is ready"
 
-def _headers() -> dict[str, str]:
-    return {
-        "Authorization": f"Bearer {settings.VULTR_API_KEY}",
-        "Content-Type": "application/json",
-    }
+# Docker login to Vultr registry
+echo "Logging into Vultr container registry..."
+echo "{registry_pass}" | docker login {registry_url} -u {registry_user} --password-stdin
+
+# Pull the gpu-worker image
+echo "Pulling gpu-worker image..."
+docker pull {image}
+
+# Run the training container with all config as environment variables
+echo "Starting training container..."
+docker run --rm --gpus all \
+    -e JOB_ID={job_id} \
+    -e API_CALLBACK_URL={api_callback_url} \
+    -e CALLBACK_SECRET={callback_secret} \
+    -e BASE_MODEL={base_model} \
+    -e TASK={task} \
+    -e MAX_EPOCHS={max_epochs} \
+    -e BATCH_SIZE={batch_size} \
+    -e LEARNING_RATE={learning_rate} \
+    -e USE_LORA={"true" if use_lora else "false"} \
+    -e TARGET_ACCURACY={target_acc_str} \
+    -e TRAINING_MODE=simulated \
+    {image}
+
+echo "===== GPU Worker Exiting ====="
+'''
+    return script
 
 
 async def create_gpu_instance(
     label: str = "dataforall-training",
     region: str | None = None,
+    job_id: str | None = None,
+    base_model: str | None = None,
+    task: str | None = None,
+    max_epochs: int | None = None,
+    batch_size: int | None = None,
+    learning_rate: float | None = None,
+    use_lora: bool | None = None,
+    target_accuracy: float | None = None,
+    api_callback_url: str | None = None,
+    callback_secret: str | None = None,
 ) -> dict[str, Any]:
     """
     Provision a GH200 bare-metal GPU server on Vultr.
+    If job parameters are provided, includes a cloud-init startup script
+    that runs the gpu-worker Docker container.
+
     Returns the raw Vultr API response body (contains 'bare_metal' key).
     """
+    startup_script = None
+    if job_id and base_model and task and api_callback_url and callback_secret:
+        assert job_id is not None
+        assert base_model is not None
+        assert task is not None
+        assert api_callback_url is not None
+        assert callback_secret is not None
+        startup_script = _build_startup_script(
+            job_id=job_id,
+            base_model=base_model,
+            task=task,
+            max_epochs=max_epochs or 10,
+            batch_size=batch_size or 16,
+            learning_rate=learning_rate or 3e-4,
+            use_lora=use_lora if use_lora is not None else True,
+            target_accuracy=target_accuracy,
+            api_callback_url=api_callback_url,
+            callback_secret=callback_secret,
+        )
+        logger.info("Generated startup script for job %s", job_id)
+
     payload = {
         "region": region or settings.VULTR_DEFAULT_REGION,
         "plan": GH200_INFO["plan"],
@@ -82,6 +144,7 @@ async def create_gpu_instance(
         "label": label,
         "tags": ["dataforall", "training"],
         "enable_ipv6": False,
+        "user_data": startup_script,
     }
     if settings.VULTR_SSH_KEY_ID:
         payload["sshkey_id"] = [settings.VULTR_SSH_KEY_ID]
@@ -94,7 +157,9 @@ async def create_gpu_instance(
         )
         resp.raise_for_status()
         data = resp.json()
-        logger.info("Vultr GH200 instance created: %s", data.get("bare_metal", {}).get("id"))
+        logger.info(
+            "Vultr GH200 instance created: %s", data.get("bare_metal", {}).get("id")
+        )
         return data
 
 
@@ -126,7 +191,10 @@ async def wait_for_instance_active(
         power = bm.get("power_status", "")
         logger.info(
             "Vultr GH200 %s — status=%s power=%s (waited %ds)",
-            instance_id, status, power, elapsed,
+            instance_id,
+            status,
+            power,
+            elapsed,
         )
         if status == "active" and power == "running":
             return data
@@ -148,9 +216,7 @@ async def destroy_instance(instance_id: str) -> None:
         if resp.status_code == 204:
             logger.info("Vultr GH200 instance %s destroyed", instance_id)
         else:
-            logger.warning(
-                "Vultr destroy returned %d: %s", resp.status_code, resp.text
-            )
+            logger.warning("Vultr destroy returned %d: %s", resp.status_code, resp.text)
 
 
 def estimate_cost(max_epochs: int, approx_hours: float = 1.0) -> float:
@@ -170,3 +236,44 @@ def get_gpu_info() -> dict[str, Any]:
 def get_training_mode() -> str:
     """Return current training mode string."""
     return "local" if is_local_mode() else "vultr"
+
+
+def is_local_mode() -> bool:
+    """Check if we're running in local testing mode."""
+    return settings.TRAINING_MODE.lower() == "local"
+
+
+def _headers() -> dict[str, str]:
+    return {
+        "Authorization": f"Bearer {settings.VULTR_API_KEY}",
+        "Content-Type": "application/json",
+    }
+
+
+GH200_INFO = {
+    "name": "NVIDIA GH200 (Grace Neoverse V2)",
+    "plan": "vbm-72c-480gb-gh200-gpu",
+    "hourly_rate_usd": 1.99,
+    "gpu_memory_gb": 96,
+    "cpu_memory_gb": 480,
+    "description": (
+        "NVIDIA GH200 — Grace Neoverse V2 with 96 GB HBM3e GPU memory + 480 GB LPDDR5X CPU memory. "
+        "72-core ARM Neoverse V2 CPU. Available in ewr, atl, fra regions. "
+        "Preemptible only. $1.99/hr."
+    ),
+}
+
+LOCAL_4060_INFO = {
+    "name": "NVIDIA RTX 4060 Mobile (local)",
+    "plan": "local",
+    "hourly_rate_usd": 0.0,
+    "gpu_memory_gb": 8,
+    "cpu_memory_gb": 0,
+    "description": (
+        "NVIDIA RTX 4060 Mobile — 8 GB GDDR6, Ada Lovelace architecture. "
+        "Local testing GPU. Use small batch sizes and LoRA for memory efficiency. "
+        "Not suitable for large models or full fine-tuning."
+    ),
+}
+
+VULTR_OS_ID = 2284

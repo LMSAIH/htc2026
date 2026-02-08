@@ -29,6 +29,16 @@ class Settings(BaseSettings):
     # HuggingFace Hub
     HF_TOKEN: str = ""
 
+    # GPU Worker Callbacks
+    CALLBACK_SECRET: str = ""  # Shared secret for GPU worker → API auth
+    API_BASE_URL: str = ""  # e.g. https://api.dataforall.xyz — passed to GPU workers
+
+    # Container Registry
+    VULTR_REGISTRY_URL: str = "ewr.vultrcr.com"
+    VULTR_REGISTRY_USERNAME: str = ""
+    VULTR_REGISTRY_PASSWORD: str = ""  # API key for the registry
+    GPU_WORKER_IMAGE: str = "ewr.vultrcr.com/dataforall/gpu-worker:latest"
+
     # App
     APP_ENV: str = "development"
     APP_SECRET_KEY: str = "change-me-in-production"

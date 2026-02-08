@@ -4,11 +4,12 @@ fetching HuggingFace models, and GH200 GPU info.
 """
 
 import uuid
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
+from app.core.config import get_settings
 from app.models.mission import Mission
 from app.models.contribution import Contribution, ContributionStatus
 from app.models.training_job import TrainingJob, TrainingJobStatus, TrainingTask
@@ -20,6 +21,9 @@ from app.schemas.training import (
     HFModelListResponse,
     GPUInfo,
     GPUInfoResponse,
+    CallbackStatusRequest,
+    CallbackCompleteRequest,
+    CallbackFailRequest,
 )
 from app.services import hf_models, vultr_gpu, training_orchestrator
 
@@ -27,6 +31,7 @@ router = APIRouter(prefix="/training", tags=["training"])
 
 
 # ── Launch a training job ────────────────────────────────────────────────────
+
 
 @router.post(
     "/missions/{mission_id}/train",
@@ -92,6 +97,7 @@ async def start_training(
 
 # ── Get a specific training job ──────────────────────────────────────────────
 
+
 @router.get(
     "/jobs/{job_id}",
     response_model=TrainingJobResponse,
@@ -109,6 +115,7 @@ async def get_training_job(
 
 
 # ── List training jobs for a mission ─────────────────────────────────────────
+
 
 @router.get(
     "/missions/{mission_id}/jobs",
@@ -145,6 +152,7 @@ async def list_training_jobs(
 
 # ── Cancel a training job ────────────────────────────────────────────────────
 
+
 @router.post(
     "/jobs/{job_id}/cancel",
     response_model=TrainingJobResponse,
@@ -159,8 +167,14 @@ async def cancel_training_job(
     if not job:
         raise HTTPException(404, "Training job not found")
 
-    if job.status in (TrainingJobStatus.COMPLETED, TrainingJobStatus.FAILED, TrainingJobStatus.CANCELLED):
-        raise HTTPException(400, f"Cannot cancel a job with status '{job.status.value}'")
+    if job.status in (
+        TrainingJobStatus.COMPLETED,
+        TrainingJobStatus.FAILED,
+        TrainingJobStatus.CANCELLED,
+    ):
+        raise HTTPException(
+            400, f"Cannot cancel a job with status '{job.status.value}'"
+        )
 
     if job.vultr_instance_id:
         try:
@@ -177,6 +191,7 @@ async def cancel_training_job(
 
 
 # ── Browse HuggingFace models by task ────────────────────────────────────────
+
 
 @router.get(
     "/models",
@@ -197,6 +212,7 @@ async def list_hf_models(
 
 # ── GPU info ─────────────────────────────────────────────────────────────────
 
+
 @router.get(
     "/gpu-info",
     response_model=GPUInfoResponse,
@@ -206,3 +222,90 @@ async def get_gpu_info():
     info = vultr_gpu.get_gpu_info()
     mode = vultr_gpu.get_training_mode()
     return GPUInfoResponse(gpu=GPUInfo(**info), mode=mode)
+
+
+# ── GPU Worker Callbacks ───────────────────────────────────────────────────────
+
+
+@router.post(
+    "/jobs/{job_id}/callback/status",
+    summary="GPU worker reports training progress",
+)
+async def callback_status(
+    job_id: uuid.UUID,
+    payload: CallbackStatusRequest,
+    x_callback_secret: str = Header(..., alias="X-Callback-Secret"),
+    db: AsyncSession = Depends(get_db),
+):
+    settings = get_settings()
+    if x_callback_secret != settings.CALLBACK_SECRET:
+        raise HTTPException(403, "Invalid callback secret")
+
+    result = await db.execute(select(TrainingJob).where(TrainingJob.id == job_id))
+    job = result.scalar_one_or_none()
+    if not job:
+        raise HTTPException(404, "Training job not found")
+
+    job.status = TrainingJobStatus.TRAINING
+    job.epochs_completed = payload.epochs_completed
+    if payload.current_loss is not None:
+        job.result_loss = payload.current_loss
+    if payload.current_accuracy is not None:
+        job.result_accuracy = payload.current_accuracy
+
+    await db.flush()
+    return {"ok": True}
+
+
+@router.post(
+    "/jobs/{job_id}/callback/complete",
+    summary="GPU worker reports training completion",
+)
+async def callback_complete(
+    job_id: uuid.UUID,
+    payload: CallbackCompleteRequest,
+    x_callback_secret: str = Header(..., alias="X-Callback-Secret"),
+    db: AsyncSession = Depends(get_db),
+):
+    settings = get_settings()
+    if x_callback_secret != settings.CALLBACK_SECRET:
+        raise HTTPException(403, "Invalid callback secret")
+
+    result = await db.execute(select(TrainingJob).where(TrainingJob.id == job_id))
+    job = result.scalar_one_or_none()
+    if not job:
+        raise HTTPException(404, "Training job not found")
+
+    job.status = TrainingJobStatus.COMPLETED
+    job.result_accuracy = payload.result_accuracy
+    job.result_loss = payload.result_loss
+    job.epochs_completed = payload.epochs_completed
+
+    await db.flush()
+    return {"ok": True}
+
+
+@router.post(
+    "/jobs/{job_id}/callback/fail",
+    summary="GPU worker reports training failure",
+)
+async def callback_fail(
+    job_id: uuid.UUID,
+    payload: CallbackFailRequest,
+    x_callback_secret: str = Header(..., alias="X-Callback-Secret"),
+    db: AsyncSession = Depends(get_db),
+):
+    settings = get_settings()
+    if x_callback_secret != settings.CALLBACK_SECRET:
+        raise HTTPException(403, "Invalid callback secret")
+
+    result = await db.execute(select(TrainingJob).where(TrainingJob.id == job_id))
+    job = result.scalar_one_or_none()
+    if not job:
+        raise HTTPException(404, "Training job not found")
+
+    job.status = TrainingJobStatus.FAILED
+    job.error_message = payload.error_message
+
+    await db.flush()
+    return {"ok": True}

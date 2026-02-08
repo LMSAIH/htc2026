@@ -122,8 +122,15 @@ const StoreContext = createContext<Store | null>(null);
 
 // ─── Provider ───────────────────────────────────────────────────────
 export function StoreProvider({ children }: { children: ReactNode }) {
-  const [isAuthenticated, setIsAuthenticated] = useState(true);
-  const [user, setUser] = useState<UserProfile | null>(deepClone(SEED_USER));
+  const [isAuthenticated, setIsAuthenticated] = useState(() => {
+    try { return localStorage.getItem("dfa_auth") === "1"; } catch { return false; }
+  });
+  const [user, setUser] = useState<UserProfile | null>(() => {
+    try {
+      const saved = localStorage.getItem("dfa_user");
+      return saved ? JSON.parse(saved) as UserProfile : null;
+    } catch { return null; }
+  });
   const [missions, setMissions] = useState<Mission[]>(() =>
     deepClone(SEED_MISSIONS),
   );
@@ -148,6 +155,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     };
     setUser(u);
     setIsAuthenticated(true);
+    try { localStorage.setItem("dfa_auth", "1"); localStorage.setItem("dfa_user", JSON.stringify(u)); } catch {}
     toast.success(`Welcome back, ${u.name}!`);
   }, []);
 
@@ -172,6 +180,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     };
     setUser(newUser);
     setIsAuthenticated(true);
+    try { localStorage.setItem("dfa_auth", "1"); localStorage.setItem("dfa_user", JSON.stringify(newUser)); } catch {}
     // Add to leaderboard
     setLeaderboard((prev) => [
       ...prev,
@@ -192,6 +201,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const logout = useCallback(() => {
     setIsAuthenticated(false);
     setUser(null);
+    try { localStorage.removeItem("dfa_auth"); localStorage.removeItem("dfa_user"); } catch {}
     toast("Logged out successfully");
   }, []);
 

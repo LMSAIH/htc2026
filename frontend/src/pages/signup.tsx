@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, Navigate } from "react-router-dom";
 import { Database, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -17,8 +17,7 @@ export default function SignupPage() {
 
   // Redirect if already logged in
   if (isAuthenticated) {
-    navigate("/app", { replace: true });
-    return null;
+    return <Navigate to="/app" replace />;
   }
 
   const handleSubmit = async (e: React.FormEvent) => {

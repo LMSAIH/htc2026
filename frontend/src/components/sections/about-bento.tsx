@@ -186,11 +186,13 @@ function GitHubGlobeBackground() {
   }, []);
 
   return (
-    <div className="absolute -right-20 -bottom-16 h-[420px] w-[420px] overflow-hidden opacity-50 dark:opacity-70">
-      <World
-        globeConfig={isDark ? globeConfigDark : globeConfigLight}
-        data={sampleArcs}
-      />
+    <div className="absolute -right-24 -top-35 h-[450px] w-[450px] overflow-hidden opacity-30 dark:opacity-60">
+      <div className="w-full h-full aspect-square">
+        <World
+          globeConfig={isDark ? globeConfigDark : globeConfigLight}
+          data={sampleArcs}
+        />
+      </div>
     </div>
   );
 }
@@ -213,11 +215,7 @@ export function AboutBento() {
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-3 md:grid-rows-2 md:auto-rows-[180px]">
         {/* div1: row 1, cols 1-2 — Pipeline */}
-        <BlurFade
-          delay={0.05}
-          inView
-          className="md:[grid-area:1/1/2/3]"
-        >
+        <BlurFade delay={0.05} inView className="md:[grid-area:1/1/2/3]">
           <BentoCard
             name="Community to AI pipeline"
             description="Contributors upload data → Community validates quality → Curated datasets power ethical AI models"
@@ -227,11 +225,7 @@ export function AboutBento() {
         </BlurFade>
 
         {/* div2: row 1, col 3 */}
-        <BlurFade
-          delay={0.1}
-          inView
-          className="md:[grid-area:1/3/2/4]"
-        >
+        <BlurFade delay={0.1} inView className="md:[grid-area:1/3/2/4]">
           <BentoCard
             name="Verifiable contributions"
             description="Multi-stage validation ensures rigorous quality before training."
@@ -241,11 +235,7 @@ export function AboutBento() {
         </BlurFade>
 
         {/* div4: row 2, col 1 */}
-        <BlurFade
-          delay={0.15}
-          inView
-          className="md:[grid-area:2/1/3/2]"
-        >
+        <BlurFade delay={0.15} inView className="md:[grid-area:2/1/3/2]">
           <BentoCard
             name="Open access"
             description="All datasets published under open licenses with transparent governance."
@@ -255,11 +245,7 @@ export function AboutBento() {
         </BlurFade>
 
         {/* div3: row 2, cols 2-3 — Globe */}
-        <BlurFade
-          delay={0.2}
-          inView
-          className="md:[grid-area:2/2/3/4]"
-        >
+        <BlurFade delay={0.2} inView className="md:[grid-area:2/2/3/4]">
           <BentoCard
             name="Global connections"
             description="Contributors worldwide collaborate to build ethical AI datasets across every continent."

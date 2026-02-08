@@ -1,5 +1,4 @@
 import { type ComponentPropsWithoutRef, type ReactNode } from "react";
-
 import { cn } from "@/lib/utils";
 
 interface BentoGridProps extends ComponentPropsWithoutRef<"div"> {
@@ -34,25 +33,27 @@ const BentoCard = ({
   background,
   description,
   ...props
-}: BentoCardProps) => (
-  <div
-    key={name}
-    className={cn(
-      "relative col-span-3 flex flex-col justify-end overflow-hidden rounded-xl",
-      "bg-background [box-shadow:0_0_0_1px_rgba(0,0,0,.03),0_2px_4px_rgba(0,0,0,.05),0_12px_24px_rgba(0,0,0,.05)]",
-      "dark:bg-background transform-gpu dark:[box-shadow:0_-20px_80px_-20px_#ffffff1f_inset] dark:[border:1px_solid_rgba(255,255,255,.1)]",
-      className,
-    )}
-    {...props}
-  >
-    <div>{background}</div>
-    <div className="pointer-events-none z-10 flex transform-gpu flex-col gap-2 p-6">
-      <h3 className="text-xl font-semibold text-foreground">
-        {name}
-      </h3>
-      <p className="max-w-lg text-sm text-muted-foreground leading-relaxed">{description}</p>
+}: BentoCardProps) => {
+  return (
+    <div
+      key={name}
+      className={cn(
+        "relative col-span-3 flex flex-col justify-end overflow-hidden rounded-xl",
+        "bg-background [box-shadow:0_0_0_1px_rgba(0,0,0,.03),0_2px_4px_rgba(0,0,0,.05),0_12px_24px_rgba(0,0,0,.05)]",
+        "dark:bg-background dark:[box-shadow:0_-20px_80px_-20px_#ffffff1f_inset] dark:[border:1px_solid_rgba(255,255,255,.1)]",
+        className,
+      )}
+      {...props}
+    >
+      <div className="relative z-[1]">{background}</div>
+      <div className="relative z-10 flex flex-col gap-2 p-6">
+        <h3 className="text-xl font-semibold text-foreground">
+          {name}
+        </h3>
+        <p className="max-w-lg text-sm text-muted-foreground leading-relaxed">{description}</p>
+      </div>
     </div>
-  </div>
-);
+  );
+};
 
 export { BentoCard, BentoGrid };

@@ -162,9 +162,9 @@ function AnnotatorPreview() {
       <div className="flex gap-3 flex-1">
         <div className="flex-1 rounded-xl bg-white border border-gray-100 shadow-[0_8px_30px_rgba(0,0,0,0.04)] p-4 flex flex-col items-center justify-center">
           <div className="w-full aspect-square rounded-lg bg-gradient-to-br from-green-100 via-emerald-50 to-lime-100 flex items-center justify-center mb-3">
-            <span className="text-3xl">🌿</span>
+            <img src="/public/leaf.jpg" alt="Leaf" className="w-full h-full object-cover rounded-md" />
           </div>
-          <span className="text-[11px] text-gray-400">leaf_rust_042.jpg</span>
+          <span className="text-[11px] text-gray-400">leaf_healthy_042.jpg</span>
           <div className="flex items-center gap-3 mt-2">
             <span className="text-[10px] text-gray-300">−</span>
             <span className="text-[10px] text-gray-500 font-medium">100%</span>
@@ -180,11 +180,9 @@ function AnnotatorPreview() {
             </div>
             <p className="text-[13px] font-semibold text-gray-800 mb-3">What disease is visible?</p>
             <div className="space-y-2">
-              <div className="flex items-center gap-2 rounded-lg border-2 border-blue-500 bg-blue-50 px-3 py-2">
-                <div className="h-3.5 w-3.5 rounded-full border-2 border-blue-500 flex items-center justify-center">
-                  <div className="h-1.5 w-1.5 rounded-full bg-blue-500" />
-                </div>
-                <span className="text-[12px] font-semibold text-blue-700">Leaf Rust</span>
+              <div className="flex items-center gap-2 rounded-lg border border-gray-200 px-3 py-2">
+                <div className="h-3.5 w-3.5 rounded-full border-2 border-gray-300" />
+                <span className="text-[12px] text-gray-500">Leaf Rust</span>
               </div>
               <div className="flex items-center gap-2 rounded-lg border border-gray-200 px-3 py-2">
                 <div className="h-3.5 w-3.5 rounded-full border-2 border-gray-300" />
@@ -194,9 +192,11 @@ function AnnotatorPreview() {
                 <div className="h-3.5 w-3.5 rounded-full border-2 border-gray-300" />
                 <span className="text-[12px] text-gray-500">Mildew</span>
               </div>
-              <div className="flex items-center gap-2 rounded-lg border border-gray-200 px-3 py-2">
-                <div className="h-3.5 w-3.5 rounded-full border-2 border-gray-300" />
-                <span className="text-[12px] text-gray-500">Healthy</span>
+              <div className="flex items-center gap-2 rounded-lg border-2 border-blue-500 bg-blue-50 px-3 py-2">
+                <div className="h-3.5 w-3.5 rounded-full border-2 border-blue-500 flex items-center justify-center">
+                  <div className="h-1.5 w-1.5 rounded-full bg-blue-500" />
+                </div>
+                <span className="text-[12px] font-semibold text-blue-700">Healthy</span>
               </div>
             </div>
           </div>

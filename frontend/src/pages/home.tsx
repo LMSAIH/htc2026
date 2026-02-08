@@ -31,7 +31,7 @@ export default function HomePage() {
   return (
     <div className="relative">
       {/* ── Hero ── */}
-      <section className="relative overflow-hidden bg-background">
+      <section className="relative overflow-hidden bg-background mb-24">
         <Particles
           className="absolute inset-0"
           quantity={60}
@@ -103,13 +103,17 @@ export default function HomePage() {
       </section>
 
       {/* ── About Us Bento Grid ── */}
-      <AboutBento />
+      <div className="mb-32">
+        <AboutBento />
+      </div>
 
       {/* ── For Everyone — Scroll-triggered Roles ── */}
-      <ForEveryoneSection />
+      <div className="mb-32">
+        <ForEveryoneSection />
+      </div>
 
       {/* ── Final CTA ── */}
-      <section className="bg-background">
+      <section className="bg-background pt-16">
         <div className="mx-auto flex max-w-3xl flex-col items-center gap-8 px-4 py-28 text-center">
           <BlurFade inView>
             <h2 className="font-display text-3xl font-semibold tracking-tight sm:text-4xl">

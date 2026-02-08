@@ -153,11 +153,37 @@ async def start_worker() -> dict[str, Any]:
         # Check if there's already an active worker
         existing = await _get_active_worker(db)
         if existing:
-            raise RuntimeError(
-                f"A persistent worker is already active: {existing.id} "
-                f"(status={existing.status.value}, instance={existing.lambda_instance_id}). "
-                f"Stop it first with POST /api/training/workers/stop"
-            )
+            # Verify the Lambda instance is actually running
+            instance_still_exists_and_running = False
+            if existing.lambda_instance_id:
+                try:
+                    instance_info = await lambda_gpu.get_instance(
+                        existing.lambda_instance_id
+                    )
+                    lambda_status = instance_info.get("data", {}).get("status", "")
+                    if lambda_status == "running":
+                        instance_still_exists_and_running = True
+                except Exception:
+                    # Instance doesn't exist or API unreachable - treat as not running
+                    pass
+
+            if instance_still_exists_and_running:
+                raise RuntimeError(
+                    f"A persistent worker is already active: {existing.id} "
+                    f"(status={existing.status.value}, instance={existing.lambda_instance_id}). "
+                    f"Stop it first with POST /api/training/workers/stop"
+                )
+            else:
+                # Stale worker record - Lambda instance is gone or not running
+                # Delete the stale record so we can start fresh
+                logger.warning(
+                    "Found stale worker record %s (Lambda instance %s not running). "
+                    "Deleting stale record and proceeding with new worker.",
+                    existing.id,
+                    existing.lambda_instance_id,
+                )
+                await db.delete(existing)
+                await db.commit()
 
         logger.info("Starting persistent GPU worker...")
 

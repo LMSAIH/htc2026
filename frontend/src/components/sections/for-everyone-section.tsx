@@ -1,15 +1,8 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
-import { motion } from 'framer-motion';
 import { Link } from 'react-router-dom';
 import {
-  User,
-  Target,
-  Settings,
   ArrowRight,
   Upload,
-  Tags,
-  LayoutDashboard,
-  type LucideIcon,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { BlurFade } from '@/components/magicui/blur-fade';

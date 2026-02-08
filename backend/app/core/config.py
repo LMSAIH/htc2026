@@ -18,6 +18,17 @@ class Settings(BaseSettings):
     # Database SSL
     DB_CA_CERT_PATH: str = ""  # Path to CA cert for SSL connections to managed Postgres
 
+    # Vultr GPU Cloud
+    VULTR_API_KEY: str = ""
+    VULTR_DEFAULT_REGION: str = "ewr"
+    VULTR_SSH_KEY_ID: str = ""
+
+    # Training mode: "local" (4060 Mobile) or "vultr" (GH200 cloud)
+    TRAINING_MODE: str = "local"
+
+    # HuggingFace Hub
+    HF_TOKEN: str = ""
+
     # App
     APP_ENV: str = "development"
     APP_SECRET_KEY: str = "change-me-in-production"

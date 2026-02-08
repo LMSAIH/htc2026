@@ -8,9 +8,9 @@ from app.core.database import engine
 from app.models.base import Base
 
 # Import all models so Base.metadata knows about them
-from app.models import Mission, Contribution, CurationAction, AIModel  # noqa: F401
+from app.models import Mission, Contribution, CurationAction, AIModel, TrainingJob  # noqa: F401
 
-from app.routers import health, missions, contributions, curation, dashboard, ai
+from app.routers import health, missions, contributions, curation, dashboard, ai, training
 
 settings = get_settings()
 
@@ -48,3 +48,4 @@ app.include_router(contributions.router, prefix="/api")
 app.include_router(curation.router, prefix="/api")
 app.include_router(dashboard.router, prefix="/api")
 app.include_router(ai.router, prefix="/api")
+app.include_router(training.router, prefix="/api")

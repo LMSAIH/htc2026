@@ -42,3 +42,6 @@ class Mission(Base, UUIDMixin, TimestampMixin):
     ai_models: Mapped[list["AIModel"]] = relationship(
         back_populates="mission", lazy="selectin"
     )
+    training_jobs: Mapped[list["TrainingJob"]] = relationship(
+        back_populates="mission", lazy="selectin"
+    )

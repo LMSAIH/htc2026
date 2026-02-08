@@ -11,7 +11,7 @@ Lifecycle:
 
 import asyncio
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
 from sqlalchemy import select, desc
@@ -281,8 +281,14 @@ async def get_status() -> dict[str, Any]:
 
         # Check heartbeat freshness
         heartbeat_age = None
+        now = datetime.now(timezone.utc)
         if worker.last_seen_at:
-            heartbeat_age = (datetime.utcnow() - worker.last_seen_at).total_seconds()
+            last_seen = (
+                worker.last_seen_at.replace(tzinfo=timezone.utc)
+                if worker.last_seen_at.tzinfo is None
+                else worker.last_seen_at
+            )
+            heartbeat_age = (now - last_seen).total_seconds()
             if heartbeat_age > WORKER_OFFLINE_TIMEOUT_SECONDS:
                 # Worker hasn't reported in — mark offline if it was online/busy
                 if worker.status in (WorkerStatus.online, WorkerStatus.busy):

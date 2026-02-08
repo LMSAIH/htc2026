@@ -11,7 +11,14 @@ from app.core.database import engine
 from app.models.base import Base
 
 # Import all models so Base.metadata knows about them
-from app.models import Mission, Contribution, CurationAction, AIModel, TrainingJob  # noqa: F401
+from app.models import (
+    Mission,
+    Contribution,
+    CurationAction,
+    AIModel,
+    TrainingJob,
+    PersistentWorker,
+)  # noqa: F401
 
 from app.routers import (
     health,

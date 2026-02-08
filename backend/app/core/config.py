@@ -37,6 +37,14 @@ class Settings(BaseSettings):
     # This is passed to the gpu-worker container as its TRAINING_MODE env var.
     WORKER_TRAINING_MODE: str = "simulated"
 
+    # Persistent GPU Worker
+    PERSISTENT_WORKER_ENABLED: bool = (
+        False  # Use persistent worker instead of per-job provisioning
+    )
+    PERSISTENT_WORKER_POLL_INTERVAL: int = (
+        10  # Seconds between worker polls for new jobs
+    )
+
     # HuggingFace Hub
     HF_TOKEN: str = ""
 

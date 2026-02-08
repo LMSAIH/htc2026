@@ -13,6 +13,7 @@ from fastapi import (
     Header,
     HTTPException,
     Query,
+    Response,
     WebSocket,
     WebSocketDisconnect,
 )
@@ -41,8 +42,11 @@ from app.schemas.training import (
     LogMessage,
     LogEntry,
     LogEntryListResponse,
+    NextJobResponse,
+    WorkerStatusResponse,
+    WorkerActionResponse,
 )
-from app.services import hf_models, lambda_gpu, training_orchestrator
+from app.services import hf_models, lambda_gpu, training_orchestrator, worker_manager
 
 
 class ProgressConnectionManager:
@@ -161,7 +165,7 @@ async def start_training(
     await db.refresh(job)
 
     # 6. Kick off background training pipeline
-    training_orchestrator.launch_training(job.id)
+    await training_orchestrator.launch_training(job.id)
 
     return TrainingJobResponse.model_validate(job)
 
@@ -633,3 +637,114 @@ async def get_training_logs(
         logs=[LogEntry.model_validate(log) for log in logs],
         total=total,
     )
+
+
+# ── Persistent Worker Endpoints ───────────────────────────────────────────────
+
+
+@router.get(
+    "/worker/next-job",
+    response_model=NextJobResponse,
+    responses={204: {"description": "No queued jobs available"}},
+    summary="Persistent worker polls for the next queued job",
+)
+async def worker_next_job(
+    x_callback_secret: str = Header(..., alias="X-Callback-Secret"),
+    db: AsyncSession = Depends(get_db),
+):
+    """Core polling endpoint for the persistent GPU worker.
+
+    The worker calls this every ~10s. It always records a heartbeat (even when
+    idle) and atomically claims the oldest QUEUED job if one exists.
+    Returns 204 when the queue is empty.
+    """
+    settings = get_settings()
+    if x_callback_secret != settings.CALLBACK_SECRET:
+        raise HTTPException(403, "Invalid callback secret")
+
+    # Always heartbeat — keeps the worker marked as alive
+    await worker_manager.worker_heartbeat()
+
+    # Find the oldest QUEUED job
+    result = await db.execute(
+        select(TrainingJob)
+        .where(TrainingJob.status == TrainingJobStatus.QUEUED)
+        .order_by(TrainingJob.created_at.asc())
+        .limit(1)
+    )
+    job = result.scalar_one_or_none()
+
+    if job is None:
+        await worker_manager.set_worker_idle()
+        return Response(status_code=204)
+
+    # Atomically claim the job
+    job.status = TrainingJobStatus.TRAINING
+    job.last_progress_at = datetime.utcnow()
+    await db.commit()
+    await db.refresh(job)
+
+    await worker_manager.set_worker_busy(str(job.id))
+
+    return NextJobResponse(
+        job_id=str(job.id),
+        mission_id=str(job.mission_id),
+        base_model=job.base_model,
+        task=job.task.value,
+        max_epochs=job.max_epochs,
+        batch_size=job.batch_size,
+        learning_rate=job.learning_rate,
+        use_lora=job.use_lora,
+        target_accuracy=job.target_accuracy,
+        training_mode=settings.WORKER_TRAINING_MODE,
+        dataset_path=job.dataset_path or f"missions/{job.mission_id}/contributions/",
+    )
+
+
+@router.post(
+    "/workers/start",
+    response_model=WorkerActionResponse,
+    summary="Start the persistent GPU worker (launches Lambda H100)",
+)
+async def start_worker():
+    try:
+        result = await worker_manager.start_worker()
+        return WorkerActionResponse(**result)
+    except RuntimeError as exc:
+        raise HTTPException(400, str(exc))
+
+
+@router.post(
+    "/workers/stop",
+    response_model=WorkerActionResponse,
+    summary="Stop the persistent GPU worker (terminates Lambda instance)",
+)
+async def stop_worker():
+    try:
+        result = await worker_manager.stop_worker()
+        return WorkerActionResponse(**result)
+    except RuntimeError as exc:
+        raise HTTPException(400, str(exc))
+
+
+@router.get(
+    "/workers/status",
+    response_model=WorkerStatusResponse,
+    summary="Get persistent worker status",
+)
+async def get_worker_status():
+    result = await worker_manager.get_status()
+    return WorkerStatusResponse(**result)
+
+
+@router.post(
+    "/workers/refresh",
+    response_model=WorkerActionResponse,
+    summary="Pull latest Docker image and restart the persistent worker container",
+)
+async def refresh_worker():
+    try:
+        result = await worker_manager.refresh_image()
+        return WorkerActionResponse(**result)
+    except RuntimeError as exc:
+        raise HTTPException(400, str(exc))

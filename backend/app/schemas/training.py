@@ -187,3 +187,49 @@ class LogEntryListResponse(BaseModel):
 
     logs: list[LogEntry]
     total: int
+
+
+# ── Persistent Worker schemas ──────────────────────────────────────────────
+
+
+class NextJobResponse(BaseModel):
+    """Returned to a polling persistent worker when a QUEUED job is claimed."""
+
+    job_id: str
+    mission_id: str
+    base_model: str
+    task: str
+    max_epochs: int
+    batch_size: int
+    learning_rate: float
+    use_lora: bool
+    target_accuracy: float | None = None
+    training_mode: str
+    dataset_path: str
+
+
+class WorkerStatusResponse(BaseModel):
+    """Full status of the persistent worker."""
+
+    active: bool
+    status: str
+    worker_id: str | None = None
+    lambda_instance_id: str | None = None
+    ip: str | None = None
+    lambda_status: str | None = None
+    last_seen_at: str | None = None
+    heartbeat_age_seconds: float | None = None
+    current_job_id: str | None = None
+    created_at: str | None = None
+    hourly_cost_usd: float | None = None
+    message: str | None = None
+
+
+class WorkerActionResponse(BaseModel):
+    """Response for worker management actions (start/stop/refresh)."""
+
+    worker_id: str | None = None
+    status: str
+    message: str
+    lambda_instance_id: str | None = None
+    ip: str | None = None

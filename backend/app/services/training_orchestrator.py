@@ -25,7 +25,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import AsyncSessionLocal as async_session_maker
 from app.core.config import get_settings
 from app.models.training_job import TrainingJob, TrainingJobStatus
-from app.services import lambda_gpu
+from app.services import lambda_gpu, worker_manager
 
 logger = logging.getLogger(__name__)
 
@@ -44,11 +44,29 @@ async def _commit(db: AsyncSession) -> None:
         raise
 
 
-def launch_training(job_id: uuid.UUID) -> None:
+async def launch_training(job_id: uuid.UUID) -> None:
     """
-    Provision a GPU instance for the training job and return immediately.
-    The GPU worker will handle actual training and report back via callbacks.
+    Launch training for a job.
+
+    If persistent worker mode is enabled and the worker is online,
+    the job stays QUEUED and the worker will pick it up via polling.
+    Otherwise, fall back to provisioning a dedicated Lambda GPU instance.
     """
+    settings = get_settings()
+
+    if settings.PERSISTENT_WORKER_ENABLED:
+        if await worker_manager.is_worker_online():
+            logger.info(
+                "Persistent worker is online — job %s stays QUEUED for worker to claim",
+                job_id,
+            )
+            return
+
+        logger.info(
+            "Persistent worker enabled but not online — falling back to per-job provisioning for job %s",
+            job_id,
+        )
+
     asyncio.create_task(
         _provision_with_retry(job_id, retry_count=0), name=f"train-{job_id}"
     )
@@ -164,24 +182,42 @@ async def _provision_and_monitor(job_id: uuid.UUID) -> None:
 async def cleanup_job(job_id: uuid.UUID) -> None:
     """
     Called when a job is cancelled or completed to clean up GPU resources.
+    If the job ran on the persistent worker, release the worker instead of
+    destroying the instance.
     """
+    settings = get_settings()
+
     async with async_session_maker() as db:
         job = await _load_job(db, job_id)
-        if job and job.vultr_instance_id:
-            try:
-                await lambda_gpu.destroy_instance(job.vultr_instance_id)
+        if not job or not job.vultr_instance_id:
+            return
+
+        # Check if this job ran on the persistent worker
+        if settings.PERSISTENT_WORKER_ENABLED:
+            persistent_id = await worker_manager.get_persistent_instance_id()
+            if persistent_id and job.vultr_instance_id == persistent_id:
                 logger.info(
-                    "Destroyed GPU instance %s for job %s",
-                    job.vultr_instance_id,
+                    "Job %s ran on persistent worker — releasing worker instead of destroying instance",
                     job_id,
                 )
-            except Exception as exc:
-                logger.error(
-                    "Failed to destroy GPU instance %s for job %s: %s",
-                    job.vultr_instance_id,
-                    job_id,
-                    exc,
-                )
+                await worker_manager.set_worker_idle()
+                return
+
+        # Normal per-job instance: destroy it
+        try:
+            await lambda_gpu.destroy_instance(job.vultr_instance_id)
+            logger.info(
+                "Destroyed GPU instance %s for job %s",
+                job.vultr_instance_id,
+                job_id,
+            )
+        except Exception as exc:
+            logger.error(
+                "Failed to destroy GPU instance %s for job %s: %s",
+                job.vultr_instance_id,
+                job_id,
+                exc,
+            )
 
 
 async def terminate_instance(instance_id: str) -> None:
@@ -259,6 +295,7 @@ async def _check_stale_heartbeats() -> None:
     """
     Check for jobs with stale heartbeats and terminate them.
     """
+    settings = get_settings()
     cutoff_time = datetime.utcnow() - timedelta(minutes=HEARTBEAT_TIMEOUT_MINUTES)
 
     async with async_session_maker() as db:
@@ -294,15 +331,30 @@ async def _check_stale_heartbeats() -> None:
             )
 
             if job.vultr_instance_id:
-                try:
-                    await lambda_gpu.destroy_instance(job.vultr_instance_id)
+                # Check if this job was on the persistent worker
+                is_persistent = False
+                if settings.PERSISTENT_WORKER_ENABLED:
+                    persistent_id = await worker_manager.get_persistent_instance_id()
+                    is_persistent = (
+                        persistent_id and job.vultr_instance_id == persistent_id
+                    )
+
+                if is_persistent:
                     logger.info(
-                        "Terminated GPU instance %s for stale job %s",
-                        job.vultr_instance_id,
+                        "Stale job %s ran on persistent worker — releasing worker, NOT terminating instance",
                         job.id,
                     )
-                except Exception as exc:
-                    logger.error("Failed to terminate instance: %s", exc)
+                    await worker_manager.set_worker_idle()
+                else:
+                    try:
+                        await lambda_gpu.destroy_instance(job.vultr_instance_id)
+                        logger.info(
+                            "Terminated GPU instance %s for stale job %s",
+                            job.vultr_instance_id,
+                            job.id,
+                        )
+                    except Exception as exc:
+                        logger.error("Failed to terminate instance: %s", exc)
 
             await _fire_webhook(
                 job,

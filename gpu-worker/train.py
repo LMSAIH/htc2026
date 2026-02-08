@@ -54,6 +54,9 @@ S3_SECRET_KEY = os.environ.get("S3_SECRET_KEY", "")
 S3_BUCKET_NAME = os.environ.get("S3_BUCKET_NAME", "")
 MISSION_ID = os.environ.get("MISSION_ID", "")
 
+WORKER_MODE = os.environ.get("WORKER_MODE", "job")
+POLL_INTERVAL = int(os.environ.get("POLL_INTERVAL", "10"))
+
 target_acc: Optional[float] = None
 if TARGET_ACCURACY:
     try:
@@ -78,6 +81,7 @@ _callback_headers = {
 
 _state: Optional[Dict[str, Any]] = None
 _heartbeat_task: Optional[asyncio.Task] = None
+_shutdown_event = asyncio.Event()
 
 
 def get_http_client() -> httpx.AsyncClient:
@@ -149,6 +153,42 @@ def update_state(
     if accuracy is not None:
         _state["accuracy"] = accuracy
     save_state(_state)
+
+
+def apply_job_config(config: dict) -> None:
+    """Apply job configuration from NextJobResponse JSON to module globals."""
+    global JOB_ID, BASE_MODEL, TASK, MAX_EPOCHS, BATCH_SIZE, LEARNING_RATE
+    global USE_LORA, TARGET_ACCURACY, TRAINING_MODE, MISSION_ID, DATASET_PATH
+    global target_acc, OUTPUT_DIR, MODEL_DIR, CHECKPOINT_DIR
+
+    JOB_ID = config.get("job_id", "")
+    BASE_MODEL = config.get("base_model", "")
+    TASK = config.get("task", "")
+    MAX_EPOCHS = config.get("max_epochs", 10)
+    BATCH_SIZE = config.get("batch_size", 16)
+    LEARNING_RATE = float(config.get("learning_rate", 3e-4))
+    USE_LORA = str(config.get("use_lora", "true")).lower() == "true"
+    TARGET_ACCURACY = config.get("target_accuracy") or ""
+    TRAINING_MODE = config.get("training_mode", "simulated")
+    MISSION_ID = config.get("mission_id", "")
+    DATASET_PATH = config.get("dataset_path", "")
+
+    global target_acc
+    if TARGET_ACCURACY:
+        try:
+            target_acc = float(TARGET_ACCURACY)
+        except ValueError:
+            target_acc = None
+    else:
+        target_acc = None
+
+    OUTPUT_DIR = f"/tmp/training-{JOB_ID}"
+    MODEL_DIR = f"{OUTPUT_DIR}/model"
+    CHECKPOINT_DIR = f"{OUTPUT_DIR}/checkpoints"
+
+    Path(OUTPUT_DIR).mkdir(parents=True, exist_ok=True)
+    Path(MODEL_DIR).mkdir(parents=True, exist_ok=True)
+    Path(CHECKPOINT_DIR).mkdir(parents=True, exist_ok=True)
 
 
 # ---------------------------------------------------------------------------
@@ -1052,7 +1092,8 @@ async def run_with_retry(training_fn):
                     "ERROR", f"Training failed after {MAX_RETRIES} attempts: {exc}"
                 )
                 await send_fail(f"Failed after {MAX_RETRIES} attempts: {exc}")
-                await terminate_self()
+                if WORKER_MODE != "persistent":
+                    await terminate_self()
                 raise
 
     raise RuntimeError("Unexpected exit from retry loop")
@@ -1108,9 +1149,89 @@ async def main_async():
             await _http_client.aclose()
 
 
+async def run_persistent_loop() -> None:
+    """Main loop for persistent worker mode — polls for jobs and executes them."""
+    logger.info(f"Starting persistent worker loop (poll_interval={POLL_INTERVAL}s)")
+
+    while not _shutdown_event.is_set():
+        try:
+            client = get_http_client()
+            url = f"{API_BASE_URL}/api/training/worker/next-job"
+            headers = {"X-Callback-Secret": CALLBACK_SECRET}
+
+            try:
+                resp = await client.get(url, headers=headers)
+            except Exception as e:
+                logger.warning(f"Polling failed: {e}")
+                await asyncio.sleep(POLL_INTERVAL)
+                continue
+
+            if resp.status_code == 204:
+                await asyncio.sleep(POLL_INTERVAL)
+                continue
+
+            if resp.status_code != 200:
+                logger.warning(f"Unexpected polling response: {resp.status_code}")
+                await asyncio.sleep(POLL_INTERVAL)
+                continue
+
+            config = resp.json()
+            job_id = config.get("job_id", "unknown")
+            logger.info(f"Received job: {job_id}")
+
+            try:
+                apply_job_config(config)
+                init_state()
+                start_heartbeat()
+
+                if TRAINING_MODE == "simulated":
+                    accuracy, loss, epochs = await run_with_retry(
+                        run_simulated_training
+                    )
+                else:
+                    accuracy, loss, epochs = await run_with_retry(run_real_training)
+
+                logger.info(f"Job {job_id} complete: accuracy={accuracy}, loss={loss}")
+                await send_complete(accuracy, loss, epochs)
+                await send_log(
+                    "INFO", f"Training complete: accuracy={accuracy}, loss={loss}"
+                )
+
+            except Exception as exc:
+                logger.error(f"Job {job_id} failed: {exc}")
+                await send_log("ERROR", str(exc)[:500])
+                await send_fail(str(exc)[:2000])
+            finally:
+                await stop_heartbeat()
+                delete_state()
+
+        except asyncio.CancelledError:
+            logger.info("Persistent loop cancelled")
+            break
+        except Exception as exc:
+            logger.error(f"Unexpected error in loop: {exc}")
+            await asyncio.sleep(POLL_INTERVAL)
+
+    logger.info("Persistent worker loop exiting")
+
+
 def main():
-    signal.signal(signal.SIGTERM, lambda s, f: sys.exit(0))
-    signal.signal(signal.SIGINT, lambda s, f: sys.exit(0))
+    if WORKER_MODE == "persistent":
+
+        def signal_handler(signum, frame):
+            logger.info(f"Received signal {signum}, initiating graceful shutdown...")
+            _shutdown_event.set()
+
+        signal.signal(signal.SIGTERM, signal_handler)
+        signal.signal(signal.SIGINT, signal_handler)
+
+        asyncio.run(run_persistent_loop())
+    else:
+        signal.signal(signal.SIGTERM, lambda s, f: sys.exit(0))
+        signal.signal(signal.SIGINT, lambda s, f: sys.exit(0))
+        asyncio.run(main_async())
+
+    sys.exit(0)
 
     asyncio.run(main_async())
     sys.exit(0)

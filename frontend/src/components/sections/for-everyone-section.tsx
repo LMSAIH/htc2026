@@ -150,6 +150,7 @@ function useIsDark() {
 /* ── Main Section Component ── */
 export function ForEveryoneSection() {
   const [activeRole, setActiveRole] = useState<RoleId>('non-tech');
+  const [stickyVisible, setStickyVisible] = useState(false);
   const sectionRef = useRef<HTMLElement>(null);
   const panelRefs = useRef<Map<RoleId, HTMLDivElement>>(new Map());
   const isDark = useIsDark();
@@ -157,15 +158,28 @@ export function ForEveryoneSection() {
   const handleScroll = useCallback(() => {
     if (!sectionRef.current) return;
 
-    const scrollY = window.scrollY + window.innerHeight / 3;
+    const sectionRect = sectionRef.current.getBoundingClientRect();
+    const viewportH = window.innerHeight;
+
+    // Show sticky panel when section is in view, hide when leaving
+    const sectionTop = sectionRect.top;
+    const sectionBottom = sectionRect.bottom;
+    const enterThreshold = viewportH * 0.3;
+    const exitThreshold = viewportH * 0.5;
+
+    const isVisible =
+      sectionTop < enterThreshold && sectionBottom > exitThreshold;
+    setStickyVisible(isVisible);
+
+    // Determine active role based on which panel is centered in viewport
+    const viewportCenter = viewportH * 0.4;
     let foundRole: RoleId | null = null;
 
     for (const role of roles) {
       const el = panelRefs.current.get(role.id);
       if (!el) continue;
-      const top = el.offsetTop + (sectionRef.current.offsetTop || 0);
-      const bottom = top + el.offsetHeight;
-      if (scrollY >= top && scrollY < bottom) {
+      const rect = el.getBoundingClientRect();
+      if (rect.top < viewportCenter && rect.bottom > viewportCenter) {
         foundRole = role.id;
         break;
       }
@@ -175,12 +189,12 @@ export function ForEveryoneSection() {
       setActiveRole(foundRole);
     }
 
+    // Background color transitions
     if (sectionRef.current) {
       const colors = isDark ? bgColorsDark : bgColors;
       const color = foundRole ? colors[foundRole] : colors.default;
       sectionRef.current.style.backgroundColor = color;
 
-      // In light mode, the "technical" bg is dark — switch text to light
       if (!isDark && foundRole === 'technical') {
         sectionRef.current.style.color = '#F1F5F9';
       } else {
@@ -195,15 +209,13 @@ export function ForEveryoneSection() {
     return () => window.removeEventListener('scroll', handleScroll);
   }, [handleScroll]);
 
-  const activeRoleData = roles.find((r) => r.id === activeRole) || roles[0];
-
   return (
     <section
       ref={sectionRef}
       className="py-24"
       style={{
         backgroundColor: isDark ? '#080D1F' : '#FFFFFF',
-        transition: 'background-color 1s ease, color 1s ease',
+        transition: 'background-color 0.8s ease, color 0.8s ease',
       }}
     >
       <div className="mx-auto max-w-6xl px-4">

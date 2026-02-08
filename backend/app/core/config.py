@@ -45,6 +45,9 @@ class Settings(BaseSettings):
         10  # Seconds between worker polls for new jobs
     )
 
+    # Skip approved contributions check (for testing with S3 data)
+    TRAINING_SKIP_APPROVAL_CHECK: bool = False
+
     # HuggingFace Hub
     HF_TOKEN: str = ""
 

@@ -93,3 +93,53 @@ async def get_contribution(
     if not contribution:
         raise HTTPException(status_code=404, detail="Contribution not found")
     return ContributionResponse.model_validate(contribution)
+
+
+@router.post("/{contribution_id}/approve", response_model=ContributionResponse)
+async def approve_contribution(
+    contribution_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+):
+    """Approve a contribution for training."""
+    result = await db.execute(
+        select(Contribution).where(Contribution.id == contribution_id)
+    )
+    contribution = result.scalar_one_or_none()
+    if not contribution:
+        raise HTTPException(status_code=404, detail="Contribution not found")
+
+    contribution.status = ContributionStatus.APPROVED
+    await db.commit()
+    await db.refresh(contribution)
+
+    return ContributionResponse.model_validate(contribution)
+
+
+@router.post("/approve-all", response_model=dict)
+async def approve_all_contributions(
+    mission_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+):
+    """Approve all contributions for a mission."""
+    result = await db.execute(
+        select(Contribution).where(
+            Contribution.mission_id == mission_id,
+            Contribution.status == ContributionStatus.PENDING,
+        )
+    )
+    contributions = result.scalars().all()
+
+    if not contributions:
+        return {
+            "approved": 0,
+            "message": "No pending contributions found for this mission",
+        }
+
+    for contribution in contributions:
+        contribution.status = ContributionStatus.APPROVED
+
+    await db.commit()
+    return {
+        "approved": len(contributions),
+        "message": f"Approved {len(contributions)} contributions for mission {mission_id}",
+    }

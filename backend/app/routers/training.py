@@ -126,18 +126,19 @@ async def start_training(
     if not mission:
         raise HTTPException(404, "Mission not found")
 
-    # 2. Check for approved contributions
-    approved_count = sum(
-        1
-        for c in (mission.contributions or [])
-        if c.status == ContributionStatus.APPROVED
-    )
-    if approved_count == 0:
-        raise HTTPException(
-            400,
-            "Mission has no approved contributions to train on. "
-            "Upload and approve data first.",
+    # 2. Check for approved contributions (skip if TRAINING_SKIP_APPROVAL_CHECK=true)
+    if not settings.TRAINING_SKIP_APPROVAL_CHECK:
+        approved_count = sum(
+            1
+            for c in (mission.contributions or [])
+            if c.status == ContributionStatus.APPROVED
         )
+        if approved_count == 0:
+            raise HTTPException(
+                400,
+                "Mission has no approved contributions to train on. "
+                "Upload and approve data first.",
+            )
 
     # 3. Resolve base model (auto-pick if not provided)
     base_model = hf_models.resolve_base_model(payload.task, payload.base_model)

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link, useNavigate, Navigate } from "react-router-dom";
-import { Database, Loader2 } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -32,9 +32,8 @@ export default function LoginPage() {
     <div className="flex min-h-screen items-center justify-center px-4">
       <Card className="w-full max-w-sm">
         <CardHeader className="text-center">
-          <Link to="/" className="mx-auto mb-2 flex items-center gap-2 font-bold text-xl">
-            <Database className="h-5 w-5 text-primary" />
-            DataForAll
+          <Link to="/" className="mx-auto mb-4 flex items-center justify-center">
+            <img src="/logo.png" alt="DataForAll" className="h-10 w-auto" />
           </Link>
           <CardTitle className="text-2xl">Welcome back</CardTitle>
           <CardDescription>Log in to your account to continue</CardDescription>

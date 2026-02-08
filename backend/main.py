@@ -18,6 +18,11 @@ from app.models import (
     AIModel,
     TrainingJob,
     PersistentWorker,
+    User,
+    Dataset,
+    DataFile,
+    FileAnnotation,
+    MissionMember,
 )  # noqa: F401
 
 from app.routers import (
@@ -29,6 +34,8 @@ from app.routers import (
     ai,
     training,
 )
+from app.routers import auth as auth_router
+from app.routers import leaderboard as leaderboard_router
 from app.services import training_orchestrator
 
 settings = get_settings()
@@ -103,9 +110,11 @@ app.add_middleware(
 
 # Routers
 app.include_router(health.router)  # /health — no /api prefix
+app.include_router(auth_router.router, prefix="/api")
 app.include_router(missions.router, prefix="/api")
 app.include_router(contributions.router, prefix="/api")
 app.include_router(curation.router, prefix="/api")
 app.include_router(dashboard.router, prefix="/api")
 app.include_router(ai.router, prefix="/api")
 app.include_router(training.router, prefix="/api")
+app.include_router(leaderboard_router.router, prefix="/api")

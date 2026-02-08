@@ -3,6 +3,7 @@ import {
   useContext,
   useState,
   useCallback,
+  useEffect,
   type ReactNode,
 } from "react";
 import { toast } from "sonner";
@@ -22,6 +23,21 @@ import {
   CURRENT_USER as SEED_USER,
   getBadge,
 } from "./mock-data";
+import {
+  apiLogin,
+  apiSignup,
+  apiGetMissions,
+  apiGetMission,
+  apiCreateMission,
+  apiJoinMission,
+  apiUploadFiles as apiUploadFilesRaw,
+  apiReviewFile,
+  apiAnnotateFile,
+  apiUpdateMissionTasks,
+  apiGetLeaderboard,
+  apiGetMyMissions,
+  ApiError,
+} from "./api";
 
 // ─── Helpers ────────────────────────────────────────────────────────
 let _nextId = 100;
@@ -141,56 +157,73 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   >({});
 
   // ─── Auth ─────────────────────────────────────────────────────────
-  const login = useCallback((email: string, _password: string) => {
-    // For local mode: if email matches seed user, log in as them
-    // Otherwise, create a lightweight session
-    const u: UserProfile = {
-      ...deepClone(SEED_USER),
-      email,
-    };
-    setUser(u);
-    setIsAuthenticated(true);
-    try { localStorage.setItem("dfa_auth", "1"); localStorage.setItem("dfa_user", JSON.stringify(u)); } catch {}
-    toast.success(`Welcome back, ${u.name}!`);
+  const login = useCallback((email: string, password: string) => {
+    apiLogin(email, password)
+      .then((res) => {
+        const u: UserProfile = res.user;
+        setUser(u);
+        setIsAuthenticated(true);
+        try {
+          localStorage.setItem("dfa_auth", JSON.stringify({ token: res.token }));
+          localStorage.setItem("dfa_user", JSON.stringify(u));
+        } catch {}
+        toast.success(`Welcome back, ${u.name}!`);
+      })
+      .catch((err) => {
+        // Fallback to mock
+        const u: UserProfile = { ...deepClone(SEED_USER), email };
+        setUser(u);
+        setIsAuthenticated(true);
+        try { localStorage.setItem("dfa_auth", "1"); localStorage.setItem("dfa_user", JSON.stringify(u)); } catch {}
+        toast.success(`Welcome back, ${u.name}! (offline mode)`);
+      });
   }, []);
 
-  const signup = useCallback((name: string, email: string, _password: string) => {
-    const newUser: UserProfile = {
-      id: genId("u"),
-      name,
-      avatar: name
-        .split(" ")
-        .map((w) => w[0])
-        .join("")
-        .toUpperCase()
-        .slice(0, 2),
-      email,
-      approved_contributions: 0,
-      total_contributions: 0,
-      annotations: 0,
-      reviews: 0,
-      rank: leaderboard.length + 1,
-      badge: getBadge(0),
-      joined_at: new Date().toISOString(),
-    };
-    setUser(newUser);
-    setIsAuthenticated(true);
-    try { localStorage.setItem("dfa_auth", "1"); localStorage.setItem("dfa_user", JSON.stringify(newUser)); } catch {}
-    // Add to leaderboard
-    setLeaderboard((prev) => [
-      ...prev,
-      {
-        user_id: newUser.id,
-        user_name: newUser.name,
-        approved_contributions: 0,
-        annotations: 0,
-        reviews: 0,
-        score: 0,
-        rank: prev.length + 1,
-        badge: getBadge(0),
-      },
-    ]);
-    toast.success(`Welcome to DataForAll, ${name}!`);
+  const signup = useCallback((name: string, email: string, password: string) => {
+    apiSignup(name, email, password)
+      .then((res) => {
+        const u: UserProfile = res.user;
+        setUser(u);
+        setIsAuthenticated(true);
+        try {
+          localStorage.setItem("dfa_auth", JSON.stringify({ token: res.token }));
+          localStorage.setItem("dfa_user", JSON.stringify(u));
+        } catch {}
+        toast.success(`Welcome to DataForAll, ${name}!`);
+      })
+      .catch((err) => {
+        // Fallback to mock
+        const newUser: UserProfile = {
+          id: genId("u"),
+          name,
+          avatar: name.split(" ").map((w) => w[0]).join("").toUpperCase().slice(0, 2),
+          email,
+          approved_contributions: 0,
+          total_contributions: 0,
+          annotations: 0,
+          reviews: 0,
+          rank: leaderboard.length + 1,
+          badge: getBadge(0),
+          joined_at: new Date().toISOString(),
+        };
+        setUser(newUser);
+        setIsAuthenticated(true);
+        try { localStorage.setItem("dfa_auth", "1"); localStorage.setItem("dfa_user", JSON.stringify(newUser)); } catch {}
+        setLeaderboard((prev) => [
+          ...prev,
+          {
+            user_id: newUser.id,
+            user_name: newUser.name,
+            approved_contributions: 0,
+            annotations: 0,
+            reviews: 0,
+            score: 0,
+            rank: prev.length + 1,
+            badge: getBadge(0),
+          },
+        ]);
+        toast.success(`Welcome to DataForAll, ${name}! (offline mode)`);
+      });
   }, [leaderboard.length]);
 
   const logout = useCallback(() => {
@@ -201,6 +234,60 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   }, []);
 
   // ─── Missions ─────────────────────────────────────────────────────
+  // Fetch missions from API on mount
+  useEffect(() => {
+    apiGetMissions({ limit: 100 })
+      .then((res) => {
+        if (res.missions.length > 0) {
+          const mapped: Mission[] = res.missions.map((m) => ({
+            id: m.id,
+            title: m.title,
+            reason: m.reason || "",
+            description: m.description,
+            how_to_contribute: m.how_to_contribute || "",
+            category: m.category || "",
+            model_type: (m.model_type || "vision") as ModelType,
+            status: m.status as Mission["status"],
+            owner_id: m.owner_id || "",
+            owner_name: m.owner_name || "",
+            datasets: (m.datasets || []).map((d) => ({
+              id: d.id,
+              name: d.name,
+              description: d.description || "",
+              file_count: d.file_count,
+              total_size_mb: d.total_size_mb,
+              accepted_types: d.accepted_types || [],
+              sample_files: [],
+              created_at: d.created_at,
+            })),
+            accepted_types: m.accepted_types || [],
+            target_contributions: m.target_contributions,
+            current_contributions: m.current_contributions,
+            contributors: (m.contributors || []).map((c) => ({
+              user_id: c.user_id,
+              user_name: c.user_name,
+              role: c.role as Role,
+              approved_count: c.approved_count,
+              total_count: c.total_count,
+            })),
+            created_at: m.created_at,
+            model_available: m.model_available,
+            configuredTasks: m.configured_tasks as MissionTaskConfig[] | undefined,
+          }));
+          setMissions(mapped);
+        }
+      })
+      .catch(() => {
+        // Keep seed data as fallback
+      });
+
+    apiGetLeaderboard()
+      .then((res) => {
+        if (res.entries.length > 0) setLeaderboard(res.entries);
+      })
+      .catch(() => {});
+  }, []);
+
   const addMission = useCallback(
     (data: {
       title: string;
@@ -215,6 +302,66 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       configuredTasks: MissionTaskConfig[];
     }): string => {
       const missionId = genId("m");
+
+      // Try API first
+      apiCreateMission({
+        title: data.title,
+        description: data.description,
+        reason: data.reason,
+        how_to_contribute: data.how_to_contribute,
+        category: data.category,
+        model_type: data.model_type,
+        goal_count: data.target_contributions,
+        accepted_types: data.accepted_types,
+        configured_tasks: data.configuredTasks,
+        datasets: data.datasets,
+      })
+        .then((res) => {
+          // Replace the optimistic mission with the real one
+          const apiMission: Mission = {
+            id: res.id,
+            title: res.title,
+            reason: res.reason || "",
+            description: res.description,
+            how_to_contribute: res.how_to_contribute || "",
+            category: res.category || "",
+            model_type: (res.model_type || "vision") as ModelType,
+            status: res.status as Mission["status"],
+            owner_id: res.owner_id || "",
+            owner_name: res.owner_name || "",
+            datasets: (res.datasets || []).map((d) => ({
+              id: d.id,
+              name: d.name,
+              description: d.description || "",
+              file_count: d.file_count,
+              total_size_mb: d.total_size_mb,
+              accepted_types: d.accepted_types || [],
+              sample_files: [],
+              created_at: d.created_at,
+            })),
+            accepted_types: res.accepted_types || [],
+            target_contributions: res.target_contributions,
+            current_contributions: res.current_contributions,
+            contributors: (res.contributors || []).map((c) => ({
+              user_id: c.user_id,
+              user_name: c.user_name,
+              role: c.role as Role,
+              approved_count: c.approved_count,
+              total_count: c.total_count,
+            })),
+            created_at: res.created_at,
+            model_available: res.model_available,
+            configuredTasks: res.configured_tasks as MissionTaskConfig[] | undefined,
+          };
+          setMissions((prev) =>
+            prev.map((m) => (m.id === missionId ? apiMission : m)),
+          );
+        })
+        .catch(() => {
+          // Keep optimistic local mission
+        });
+
+      // Optimistic local insert
       const newMission: Mission = {
         id: missionId,
         title: data.title,
@@ -262,6 +409,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const joinMission = useCallback(
     (missionId: string, role: Role) => {
       if (!user) return;
+      // API call (fire & forget with fallback)
+      apiJoinMission(missionId, role).catch(() => {});
       setMissions((prev) =>
         prev.map((m) => {
           if (m.id !== missionId) return m;
@@ -369,6 +518,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const addAnnotation = useCallback(
     (missionId: string, fileId: string, label: string, notes: string) => {
       if (!user) return;
+      // API call (fire & forget)
+      apiAnnotateFile(missionId, fileId, label, notes).catch(() => {});
       const ann: Annotation = {
         id: genId("a"),
         annotator_id: user.id,
@@ -473,6 +624,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const approveFile = useCallback(
     (missionId: string, fileId: string, _note?: string) => {
       if (!user) return;
+      // API call (fire & forget)
+      apiReviewFile(missionId, fileId, "approve").catch(() => {});
       setMissions((prev) =>
         prev.map((m) => {
           if (m.id !== missionId) return m;
@@ -540,6 +693,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const rejectFile = useCallback(
     (missionId: string, fileId: string, _note?: string) => {
       if (!user) return;
+      // API call (fire & forget)
+      apiReviewFile(missionId, fileId, "reject").catch(() => {});
       setMissions((prev) =>
         prev.map((m) => {
           if (m.id !== missionId) return m;
@@ -585,6 +740,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   // ─── Task management (reviewer) ───────────────────────────────────
   const updateMissionTasks = useCallback(
     (missionId: string, tasks: MissionTaskConfig[]) => {
+      // API call (fire & forget)
+      apiUpdateMissionTasks(missionId, tasks).catch(() => {});
       setMissions((prev) =>
         prev.map((m) =>
           m.id === missionId ? { ...m, configuredTasks: tasks } : m,

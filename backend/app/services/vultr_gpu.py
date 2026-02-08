@@ -154,7 +154,7 @@ async def create_gpu_instance(
 
     async with httpx.AsyncClient(timeout=60) as client:
         resp = await client.post(
-            f"{VULTR_BASE}/bare-metal",
+            f"{VULTR_BASE}/bare-metals",
             headers=_headers(),
             json=payload,
         )
@@ -170,7 +170,7 @@ async def get_instance(instance_id: str) -> dict[str, Any]:
     """Get info about a bare-metal instance."""
     async with httpx.AsyncClient(timeout=30) as client:
         resp = await client.get(
-            f"{VULTR_BASE}/bare-metal/{instance_id}",
+            f"{VULTR_BASE}/bare-metals/{instance_id}",
             headers=_headers(),
         )
         resp.raise_for_status()
@@ -213,7 +213,7 @@ async def destroy_instance(instance_id: str) -> None:
     """Terminate and delete a bare-metal instance."""
     async with httpx.AsyncClient(timeout=30) as client:
         resp = await client.delete(
-            f"{VULTR_BASE}/bare-metal/{instance_id}",
+            f"{VULTR_BASE}/bare-metals/{instance_id}",
             headers=_headers(),
         )
         if resp.status_code == 204:

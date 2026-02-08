@@ -10,6 +10,7 @@ Lifecycle:
 """
 
 import asyncio
+import httpx
 import logging
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
@@ -153,34 +154,37 @@ async def start_worker() -> dict[str, Any]:
         # Check if there's already an active worker
         existing = await _get_active_worker(db)
         if existing:
-            # Verify the Lambda instance is actually running
-            instance_still_exists_and_running = False
-            if existing.lambda_instance_id:
-                try:
-                    instance_info = await lambda_gpu.get_instance(
-                        existing.lambda_instance_id
-                    )
-                    lambda_status = instance_info.get("data", {}).get("status", "")
-                    if lambda_status == "running":
-                        instance_still_exists_and_running = True
-                except Exception:
-                    # Instance doesn't exist or API unreachable - treat as not running
-                    pass
+            # Check heartbeat freshness instead of calling Lambda API (which can be slow)
+            # If worker has sent a heartbeat recently, consider it active
+            now = datetime.now(timezone.utc)
+            last_seen = (
+                existing.last_seen_at.replace(tzinfo=timezone.utc)
+                if existing.last_seen_at and existing.last_seen_at.tzinfo is None
+                else existing.last_seen_at
+            )
+            is_responsive = (
+                last_seen
+                and (now - last_seen).total_seconds() < WORKER_OFFLINE_TIMEOUT_SECONDS
+            )
 
-            if instance_still_exists_and_running:
+            if is_responsive and existing.status in (
+                WorkerStatus.online,
+                WorkerStatus.busy,
+            ):
                 raise RuntimeError(
                     f"A persistent worker is already active: {existing.id} "
-                    f"(status={existing.status.value}, instance={existing.lambda_instance_id}). "
+                    f"(status={existing.status.value}, last_seen={last_seen}). "
                     f"Stop it first with POST /api/training/workers/stop"
                 )
             else:
-                # Stale worker record - Lambda instance is gone or not running
+                # Stale worker record - no recent heartbeat
                 # Delete the stale record so we can start fresh
                 logger.warning(
-                    "Found stale worker record %s (Lambda instance %s not running). "
+                    "Found stale worker record %s (status=%s, last_seen=%s). "
                     "Deleting stale record and proceeding with new worker.",
                     existing.id,
-                    existing.lambda_instance_id,
+                    existing.status.value,
+                    last_seen,
                 )
                 await db.delete(existing)
                 await db.commit()
@@ -296,11 +300,18 @@ async def get_status() -> dict[str, Any]:
                 "message": "No active persistent worker. Start one with POST /api/training/workers/start",
             }
 
-        # Check Lambda instance status
+        # Check Lambda instance status with short timeout
         lambda_status = "unknown"
         try:
-            instance_info = await lambda_gpu.get_instance(worker.lambda_instance_id)
-            lambda_status = instance_info.get("data", {}).get("status", "unknown")
+            async with httpx.AsyncClient(timeout=10) as client:
+                resp = await client.get(
+                    f"{lambda_gpu.LAMBDA_BASE}/instances/{worker.lambda_instance_id}",
+                    headers=lambda_gpu._headers(),
+                )
+                if resp.status_code == 200:
+                    lambda_status = resp.json().get("data", {}).get("status", "unknown")
+                else:
+                    lambda_status = f"error_{resp.status_code}"
         except Exception as exc:
             logger.warning("Failed to check Lambda instance status: %s", exc)
             lambda_status = "unreachable"

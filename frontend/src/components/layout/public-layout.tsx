@@ -2,24 +2,42 @@ import { Link, Outlet } from "react-router-dom";
 import { Github } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
+import { AnimatedThemeToggler } from "@/components/ui/animated-theme-toggler";
 
 export function PublicLayout() {
   return (
     <div className="flex min-h-screen flex-col">
       {/* Minimal nav */}
-      <header className="sticky top-0 z-50 w-full border-b bg-background/80 backdrop-blur-lg">
+      <header className="sticky top-0 z-50 w-full bg-background/80 backdrop-blur-lg">
         <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
           <Link
             to="/"
             className="flex items-center gap-2 font-bold text-xl tracking-tight"
           >
-            <img src="/logo.png" alt="DataForAll" className="h-8 w-8" />
+            <span
+              aria-hidden
+              className="h-8 w-8 bg-foreground dark:bg-white"
+              style={{
+                WebkitMaskImage: "url(/logo.png)",
+                maskImage: "url(/logo.png)",
+                WebkitMaskRepeat: "no-repeat",
+                maskRepeat: "no-repeat",
+                WebkitMaskPosition: "center",
+                maskPosition: "center",
+                WebkitMaskSize: "contain",
+                maskSize: "contain",
+              }}
+            />
             <span>
               Data<span className="text-primary">ForAll</span>
             </span>
           </Link>
 
           <div className="flex items-center gap-3">
+            <AnimatedThemeToggler
+              aria-label="Toggle theme"
+              className="inline-flex size-9 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground dark:hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [&>svg]:h-4 [&>svg]:w-4"
+            />
             <a
               href="https://github.com/LMSAIH/htc2026"
               target="_blank"
@@ -46,7 +64,7 @@ export function PublicLayout() {
       </main>
 
       {/* Footer */}
-      <footer className="border-t bg-muted/30">
+      <footer className="bg-muted/30">
         <div className="mx-auto max-w-6xl px-4 py-16 sm:px-6 lg:px-8">
           <div className="grid gap-10 sm:grid-cols-2 lg:grid-cols-4">
             <div className="space-y-4">
@@ -54,7 +72,20 @@ export function PublicLayout() {
                 to="/"
                 className="flex items-center gap-2 font-bold text-lg"
               >
-                <img src="/logo.png" alt="DataForAll" className="h-6 w-6" />
+                <span
+                  aria-hidden
+                  className="h-6 w-6 bg-foreground dark:bg-white"
+                  style={{
+                    WebkitMaskImage: "url(/logo.png)",
+                    maskImage: "url(/logo.png)",
+                    WebkitMaskRepeat: "no-repeat",
+                    maskRepeat: "no-repeat",
+                    WebkitMaskPosition: "center",
+                    maskPosition: "center",
+                    WebkitMaskSize: "contain",
+                    maskSize: "contain",
+                  }}
+                />
                 DataForAll
               </Link>
               <p className="text-sm text-muted-foreground max-w-xs">

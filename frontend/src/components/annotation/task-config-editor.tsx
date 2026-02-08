@@ -15,13 +15,10 @@ import {
   Plus,
   Trash2,
   GripVertical,
-  Palette,
-  X,
   ChevronDown,
   ChevronRight,
   AlertCircle,
   Info,
-  Sparkles,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -36,13 +33,6 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import type {
   TaskConfig,
   LabelOption,

@@ -5,6 +5,7 @@ import {
   Eye,
   ArrowUpRight,
   FolderOpen,
+  type LucideIcon,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
@@ -24,7 +25,7 @@ const CATEGORY_EMOJI: Record<string, string> = {
   Conservation: "🐾",
 };
 
-const ROLE_ICON: Record<Role, React.ElementType> = {
+const ROLE_ICON: Record<Role, LucideIcon> = {
   contributor: Upload,
   annotator: Pencil,
   reviewer: Eye,

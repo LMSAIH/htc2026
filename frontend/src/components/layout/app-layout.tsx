@@ -61,7 +61,20 @@ export function AppLayout() {
             to="/"
             className="flex items-center gap-2 px-2 py-1.5 font-bold text-lg tracking-tight"
           >
-            <img src="/logo.png" alt="" className="h-5 w-5 object-contain" aria-hidden />
+            <span
+              aria-hidden
+              className="h-5 w-5 bg-foreground dark:bg-white"
+              style={{
+                WebkitMaskImage: "url(/logo.png)",
+                maskImage: "url(/logo.png)",
+                WebkitMaskRepeat: "no-repeat",
+                maskRepeat: "no-repeat",
+                WebkitMaskPosition: "center",
+                maskPosition: "center",
+                WebkitMaskSize: "contain",
+                maskSize: "contain",
+              }}
+            />
             <span>
               Data<span className="text-primary">ForAll</span>
             </span>

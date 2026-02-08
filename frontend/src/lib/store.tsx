@@ -3,7 +3,6 @@ import {
   useContext,
   useState,
   useCallback,
-  useEffect,
   type ReactNode,
 } from "react";
 import { toast } from "sonner";
@@ -15,18 +14,14 @@ import {
   type DataFile,
   type Annotation,
   type MissionTaskConfig,
-  type MissionContributor,
   type Role,
   type ModelType,
-  type Dataset,
   MISSIONS as SEED_MISSIONS,
   LEADERBOARD as SEED_LEADERBOARD,
   MODELS as SEED_MODELS,
   CURRENT_USER as SEED_USER,
   getBadge,
 } from "./mock-data";
-import { TASK_TEMPLATES } from "./annotation-tasks";
-import type { AnnotationTaskType } from "./annotation-tasks";
 
 // ─── Helpers ────────────────────────────────────────────────────────
 let _nextId = 100;
@@ -137,7 +132,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>(() =>
     deepClone(SEED_LEADERBOARD),
   );
-  const [models, setModels] = useState<TrainedModel[]>(() =>
+  const [models, _setModels] = useState<TrainedModel[]>(() =>
     deepClone(SEED_MODELS),
   );
   const [likedMissions, setLikedMissions] = useState<Set<string>>(new Set());
@@ -231,7 +226,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         status: "active",
         owner_id: user?.id ?? "u1",
         owner_name: user?.name ?? "Unknown",
-        datasets: data.datasets.map((ds, i) => ({
+        datasets: data.datasets.map((ds) => ({
           id: genId("d"),
           name: ds.name,
           description: ds.description,
@@ -476,7 +471,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   // ─── Review ───────────────────────────────────────────────────────
   // Pipeline: pending (upload) → needs_annotation → pending_review (annotated) → approved
   const approveFile = useCallback(
-    (missionId: string, fileId: string, note?: string) => {
+    (missionId: string, fileId: string, _note?: string) => {
       if (!user) return;
       setMissions((prev) =>
         prev.map((m) => {
@@ -543,7 +538,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   );
 
   const rejectFile = useCallback(
-    (missionId: string, fileId: string, note?: string) => {
+    (missionId: string, fileId: string, _note?: string) => {
       if (!user) return;
       setMissions((prev) =>
         prev.map((m) => {
@@ -579,9 +574,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         ?.datasets.flatMap((d) => d.sample_files)
         .find((f) => f.id === fileId);
       if (fileForToast?.status === "pending") {
-        toast("Upload rejected", { description: note || undefined });
+        toast("Upload rejected", { description: _note || undefined });
       } else {
-        toast("Annotation sent back", { description: note || "Queued for re-annotation" });
+        toast("Annotation sent back", { description: _note || "Queued for re-annotation" });
       }
     },
     [user, missions],

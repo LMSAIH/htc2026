@@ -9,6 +9,7 @@ import MissionDetailPage from "@/pages/mission-detail";
 import MyMissionsPage from "@/pages/my-missions";
 import LeaderboardPage from "@/pages/leaderboard";
 import CreateMissionPage from "@/pages/create-mission";
+import AnnotatePage from "@/pages/annotate";
 
 function App() {
   return (
@@ -26,6 +27,7 @@ function App() {
           <Route index element={<MissionsPage />} />
           <Route path="missions/new" element={<CreateMissionPage />} />
           <Route path="missions/:id" element={<MissionDetailPage />} />
+          <Route path="missions/:id/annotate" element={<AnnotatePage />} />
           <Route path="my-missions" element={<MyMissionsPage />} />
           <Route path="leaderboard" element={<LeaderboardPage />} />
         </Route>

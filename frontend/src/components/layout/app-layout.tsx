@@ -1,6 +1,5 @@
 import { Link, useLocation } from "react-router-dom";
 import {
-  Database,
   Rocket,
   FolderOpen,
   Trophy,
@@ -26,6 +25,7 @@ import {
   SidebarRail,
 } from "@/components/ui/sidebar";
 import { Separator } from "@/components/ui/separator";
+import { AnimatedThemeToggler } from "@/components/ui/animated-theme-toggler";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -60,7 +60,7 @@ export function AppLayout() {
             to="/"
             className="flex items-center gap-2 px-2 py-1.5 font-bold text-lg tracking-tight"
           >
-            <Database className="h-5 w-5 text-primary" />
+            <img src="/logo.png" alt="" className="h-5 w-5 object-contain" aria-hidden />
             <span>
               Data<span className="text-primary">ForAll</span>
             </span>
@@ -138,6 +138,9 @@ export function AppLayout() {
           <span className="text-sm font-medium text-muted-foreground">
             {navItems.find((n) => isActive(n.href))?.title ?? "DataForAll"}
           </span>
+          <div className="ml-auto">
+            <AnimatedThemeToggler className="h-8 w-8 rounded-md flex items-center justify-center hover:bg-muted transition-colors [&_svg]:h-4 [&_svg]:w-4" />
+          </div>
         </header>
 
         {/* Page content */}

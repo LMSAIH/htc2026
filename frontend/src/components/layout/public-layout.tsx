@@ -1,5 +1,5 @@
 import { Link, Outlet } from "react-router-dom";
-import { Database, Github } from "lucide-react";
+import { Github } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 
@@ -13,7 +13,7 @@ export function PublicLayout() {
             to="/"
             className="flex items-center gap-2 font-bold text-xl tracking-tight"
           >
-            <Database className="h-6 w-6 text-primary" />
+            <img src="/logo.png" alt="DataForAll" className="h-8 w-8" />
             <span>
               Data<span className="text-primary">ForAll</span>
             </span>
@@ -47,14 +47,14 @@ export function PublicLayout() {
 
       {/* Footer */}
       <footer className="border-t bg-muted/30">
-        <div className="mx-auto max-w-7xl px-4 py-12 sm:px-6 lg:px-8">
-          <div className="grid gap-8 sm:grid-cols-2 lg:grid-cols-4">
-            <div className="space-y-3">
+        <div className="mx-auto max-w-6xl px-4 py-16 sm:px-6 lg:px-8">
+          <div className="grid gap-10 sm:grid-cols-2 lg:grid-cols-4">
+            <div className="space-y-4">
               <Link
                 to="/"
                 className="flex items-center gap-2 font-bold text-lg"
               >
-                <Database className="h-5 w-5 text-primary" />
+                <img src="/logo.png" alt="DataForAll" className="h-6 w-6" />
                 DataForAll
               </Link>
               <p className="text-sm text-muted-foreground max-w-xs">

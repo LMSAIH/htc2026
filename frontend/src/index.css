@@ -4,7 +4,18 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/*
+ * Font system: --font-body (Inter), --font-display (Source Serif 4), --font-mono (Geist Mono).
+ * Use: font-display for headings/mission titles, font-mono for labels/stats/code, body default.
+ * Utilities: .font-mission-title (32px semibold), .text-meta (13px medium, tracking-tight, uppercase).
+ */
 @theme inline {
+  /* Font roles: body (Inter), display (Source Serif 4), mono (Geist Mono) */
+  --font-body: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Source Serif 4", ui-serif, Georgia, serif;
+  --font-mono: "Geist Mono", ui-monospace, monospace;
+  /* Tailwind default font-sans = body font */
+  --font-sans: var(--font-body);
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
@@ -46,72 +57,82 @@
 }
 
 :root {
+  /* Font stacks (synced with @theme for Tailwind utilities) */
+  --font-body: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Source Serif 4", ui-serif, Georgia, serif;
+  --font-mono: "Geist Mono", ui-monospace, monospace;
   --radius: 0.625rem;
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
-  --chart-1: oklch(0.646 0.222 41.116);
-  --chart-2: oklch(0.6 0.118 184.704);
-  --chart-3: oklch(0.398 0.07 227.392);
-  --chart-4: oklch(0.828 0.189 84.429);
-  --chart-5: oklch(0.769 0.188 70.08);
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
+
+  /* 🌌 Aurora Blue on White — clean base, rich blue features */
+  --background: #FFFFFF;
+  --foreground: #0F172A;              /* slate-900 — crisp dark text */
+  --card: #FFFFFF;
+  --card-foreground: #0F172A;
+  --popover: #FFFFFF;
+  --popover-foreground: #0F172A;
+  --primary: #2563EB;                 /* rich electric blue */
+  --primary-foreground: #FFFFFF;
+  --secondary: #EFF6FF;              /* blue-50 — soft blue wash */
+  --secondary-foreground: #1E3A5F;
+  --muted: #F8FAFC;                  /* slate-50 */
+  --muted-foreground: #64748B;       /* slate-500 */
+  --accent: #DBEAFE;                 /* blue-100 — light accent */
+  --accent-foreground: #1E40AF;      /* blue-800 */
+  --destructive: #EF4444;
+  --border: #E2E8F0;                 /* slate-200 */
+  --input: #E2E8F0;
+  --ring: #2563EB;
+  --chart-1: #2563EB;                /* blue-600 */
+  --chart-2: #0891B2;                /* cyan-600 */
+  --chart-3: #7C3AED;                /* violet-600 */
+  --chart-4: #059669;                /* emerald-600 */
+  --chart-5: #D97706;                /* amber-600 */
+  --sidebar: #F8FAFC;
+  --sidebar-foreground: #0F172A;
+  --sidebar-primary: #2563EB;
+  --sidebar-primary-foreground: #FFFFFF;
+  --sidebar-accent: #DBEAFE;
+  --sidebar-accent-foreground: #1E40AF;
+  --sidebar-border: #E2E8F0;
+  --sidebar-ring: #2563EB;
 }
 
 .dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
-  --chart-1: oklch(0.488 0.243 264.376);
-  --chart-2: oklch(0.696 0.17 162.48);
-  --chart-3: oklch(0.769 0.188 70.08);
-  --chart-4: oklch(0.627 0.265 303.9);
-  --chart-5: oklch(0.645 0.246 16.439);
-  --sidebar: oklch(0.205 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.556 0 0);
+  /* 🌌 Aurora Deep Space — Rich Blue Edition
+     Anchor: #080D1F — deepest space
+     Bands:  #050811 → #080D1F → #0C1631 → #122450 → #1E3A6E → #2563EB */
+
+  --background: #080D1F;              /* deep space — slightly darker anchor */
+  --foreground: #F1F5F9;              /* bright silver-white text */
+  --card: #0C1631;                    /* raised surface — rich navy */
+  --card-foreground: #F1F5F9;
+  --popover: #0C1631;
+  --popover-foreground: #F1F5F9;
+  --primary: #2563EB;                 /* rich electric blue — vivid primary */
+  --primary-foreground: #FFFFFF;
+  --secondary: #122450;               /* deep royal blue — secondary surfaces */
+  --secondary-foreground: #E2E8F0;
+  --muted: #0C1631;                   /* muted backgrounds — rich navy */
+  --muted-foreground: #94A3B8;        /* brighter slate — readable muted text */
+  --accent: #1E3A6E;                  /* vivid mission blue — accent highlights */
+  --accent-foreground: #F1F5F9;
+  --destructive: #EF4444;             /* red alert */
+  --border: rgba(37, 99, 235, 0.18);  /* richer blue border glow */
+  --input: rgba(37, 99, 235, 0.20);   /* input field tint — more visible */
+  --ring: #2563EB;                    /* focus ring — rich blue */
+  --chart-1: #2563EB;                 /* rich blue */
+  --chart-2: #06B6D4;                 /* cyan */
+  --chart-3: #8B5CF6;                 /* violet */
+  --chart-4: #10B981;                 /* emerald */
+  --chart-5: #F59E0B;                 /* amber */
+  --sidebar: #050811;                 /* darkest — near-black space */
+  --sidebar-foreground: #F1F5F9;
+  --sidebar-primary: #2563EB;
+  --sidebar-primary-foreground: #FFFFFF;
+  --sidebar-accent: #0C1631;
+  --sidebar-accent-foreground: #F1F5F9;
+  --sidebar-border: rgba(37, 99, 235, 0.14);
+  --sidebar-ring: #2563EB;
 }
 
 @layer base {
@@ -119,7 +140,36 @@
     @apply border-border outline-ring/50;
   }
   body {
+    font-family: var(--font-body);
+    font-size: 16px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
     @apply bg-background text-foreground;
+  }
+  h1, h2, h3, h4, h5, h6 {
+    font-family: var(--font-body);
+    font-weight: 700;
+    letter-spacing: -0.02em;
+  }
+  code, pre, .mono {
+    font-family: var(--font-mono);
+  }
+}
+
+/* Semantic type utilities (Mission titles, Labels/Stats, CTA) */
+@layer utilities {
+  .font-mission-title {
+    font-family: var(--font-display);
+    font-size: 32px;
+    font-weight: 600;
+  }
+  .text-meta {
+    font-family: var(--font-mono);
+    font-size: 13px;
+    font-weight: 500;
+    letter-spacing: -0.025em;
+    text-transform: uppercase;
   }
 }
 
@@ -146,4 +196,9 @@
 
 @utility animate-border-beam {
   animation: border-beam calc(var(--duration)) infinite linear;
+}
+
+::view-transition-old(root), ::view-transition-new(root) {
+    animation: none;
+    mix-blend-mode: normal;
 }

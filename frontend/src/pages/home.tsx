@@ -75,7 +75,7 @@ export default function HomePage() {
           staticity={30}
         />
 
-        <div className="relative z-10 mx-auto flex max-w-5xl flex-col items-center gap-8 px-4 py-28 text-center sm:py-36">
+        <div className="relative z-10 mx-auto flex max-w-5xl flex-col items-center gap-12 px-4 py-32 text-center sm:py-44">
           <BlurFade delay={0}>
             <span className="inline-flex items-center gap-2 rounded-full border bg-muted/60 px-4 py-1.5 text-sm font-medium backdrop-blur">
               <Database className="h-3.5 w-3.5" />
@@ -84,9 +84,9 @@ export default function HomePage() {
           </BlurFade>
 
           <BlurFade delay={0.1}>
-            <h1 className="text-4xl font-extrabold tracking-tight sm:text-6xl lg:text-7xl">
+            <h1 className="font-display text-4xl font-semibold tracking-tight sm:text-6xl lg:text-7xl">
               Pool Data.{" "}
-              <AnimatedGradientText className="text-4xl font-extrabold sm:text-6xl lg:text-7xl">
+              <AnimatedGradientText className="font-display text-4xl font-semibold sm:text-6xl lg:text-7xl">
                 Build AI.
               </AnimatedGradientText>{" "}
               <br className="hidden sm:block" />
@@ -121,14 +121,14 @@ export default function HomePage() {
 
       {/* ── Stats ── */}
       <section className="border-b bg-muted/30">
-        <div className="mx-auto grid max-w-5xl grid-cols-2 gap-8 px-4 py-14 sm:grid-cols-4">
+        <div className="mx-auto grid max-w-5xl grid-cols-2 gap-8 px-4 py-20 sm:grid-cols-4">
           {stats.map((stat, i) => (
             <BlurFade key={stat.label} delay={0.1 * i} inView>
               <div className="flex flex-col items-center gap-1">
                 <span className="text-3xl font-bold sm:text-4xl">
                   <NumberTicker value={stat.value} />
                 </span>
-                <span className="text-sm text-muted-foreground">{stat.label}</span>
+                <span className="text-meta text-muted-foreground">{stat.label}</span>
               </div>
             </BlurFade>
           ))}
@@ -136,10 +136,10 @@ export default function HomePage() {
       </section>
 
       {/* ── Features ── */}
-      <section className="mx-auto max-w-6xl px-4 py-24">
+      <section className="mx-auto max-w-6xl px-4 py-28">
         <BlurFade inView>
-          <div className="text-center mb-14">
-            <h2 className="text-3xl font-bold tracking-tight sm:text-4xl">
+          <div className="text-center mb-16">
+            <h2 className="font-display text-3xl font-semibold tracking-tight sm:text-4xl">
               Everything you need to democratize data
             </h2>
             <p className="mt-3 text-muted-foreground text-lg max-w-2xl mx-auto">
@@ -169,9 +169,9 @@ export default function HomePage() {
 
       {/* ── CTA ── */}
       <section className="border-t bg-muted/30">
-        <div className="mx-auto flex max-w-3xl flex-col items-center gap-6 px-4 py-24 text-center">
+        <div className="mx-auto flex max-w-3xl flex-col items-center gap-8 px-4 py-28 text-center">
           <BlurFade inView>
-            <h2 className="text-3xl font-bold tracking-tight sm:text-4xl">
+            <h2 className="font-display text-3xl font-semibold tracking-tight sm:text-4xl">
               Ready to make data open?
             </h2>
             <p className="mt-3 text-muted-foreground text-lg">

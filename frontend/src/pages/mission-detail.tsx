@@ -25,7 +25,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 
-import { Progress } from "@/components/ui/progress";
+import { AnimatedProgress } from "@/components/ui/animated-progress";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -43,6 +43,7 @@ import { Separator } from "@/components/ui/separator";
 import {
   getMissionById,
   getModelsForMission,
+  getTasksForMission,
   CURRENT_USER,
   getRoleLabel,
   type DataFile,
@@ -192,7 +193,7 @@ export default function MissionDetailPage() {
                 <span className="text-xl">
                   {CATEGORY_EMOJI[mission.category] ?? "📁"}
                 </span>
-                <h1 className="text-xl font-bold tracking-tight">{mission.title}</h1>
+                <h1 className="font-mission-title tracking-tight">{mission.title}</h1>
                 {mission.status === "completed" ? (
                   <Badge variant="outline" className="text-green-600 border-green-300 text-[11px]">
                     Complete
@@ -260,7 +261,7 @@ export default function MissionDetailPage() {
 
           {/* Progress bar */}
           <div className="flex items-center gap-3">
-            <Progress value={pct} className="h-2 flex-1" />
+            <AnimatedProgress value={pct} className="h-2 flex-1" />
             <span className="text-[12px] text-muted-foreground tabular-nums shrink-0">
               {mission.current_contributions.toLocaleString()} / {mission.target_contributions.toLocaleString()} ({pct}%)
             </span>
@@ -653,6 +654,52 @@ export default function MissionDetailPage() {
           {/* ANNOTATE */}
           {(userRole === "annotator" || userRole === "reviewer") && (
             <TabsContent value="annotate" className="mt-0 space-y-4">
+              {/* Start Annotating CTA */}
+              {needsAnnotation.length > 0 && (
+                <div className="border rounded-xl bg-primary/5 border-primary/20 p-5 flex items-center justify-between gap-4">
+                  <div>
+                    <h3 className="font-semibold text-[15px]">Ready to annotate?</h3>
+                    <p className="text-[13px] text-muted-foreground mt-0.5">
+                      {needsAnnotation.length} file{needsAnnotation.length !== 1 ? "s" : ""} waiting · {getTasksForMission(mission.id).length} tasks per file
+                    </p>
+                  </div>
+                  <Link to={`/app/missions/${mission.id}/annotate`}>
+                    <Button className="gap-1.5">
+                      <Pencil className="h-4 w-4" />
+                      Start Annotating
+                    </Button>
+                  </Link>
+                </div>
+              )}
+
+              {/* Task preview */}
+              {getTasksForMission(mission.id).length > 0 && (
+                <div className="border rounded-xl bg-card overflow-hidden">
+                  <div className="px-5 py-3.5 border-b bg-muted/20">
+                    <h3 className="font-semibold text-[14px]">Task Preview</h3>
+                    <p className="text-[12px] text-muted-foreground mt-0.5">
+                      Each file goes through these annotation tasks
+                    </p>
+                  </div>
+                  <div className="divide-y">
+                    {getTasksForMission(mission.id).map((task, i) => (
+                      <div key={task.id} className="px-5 py-3 flex items-start gap-3">
+                        <div className="h-6 w-6 rounded-full bg-primary/10 flex items-center justify-center text-[11px] font-bold text-primary shrink-0 mt-0.5">
+                          {i + 1}
+                        </div>
+                        <div className="min-w-0">
+                          <p className="text-[13px] font-medium">{task.title}</p>
+                          <p className="text-[12px] text-muted-foreground">{task.instruction}</p>
+                          <p className="text-[11px] text-muted-foreground mt-0.5 font-mono">
+                            {task.type.replace("_", " ")} {task.required ? "· required" : "· optional"}
+                          </p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               <div className="border rounded-xl bg-card overflow-hidden">
                 <div className="px-5 py-4 border-b bg-muted/20 flex items-center justify-between">
                   <div>
